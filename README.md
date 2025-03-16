@@ -12,4 +12,8 @@
 
 ### 密钥申请
 
- DeepSeek api申请渠道 : https://platform.deepseek.com/
+DeepSeek api申请渠道 : https://platform.deepseek.com/
+
+### 其它
+
+有问题请联系QQ2981701287
