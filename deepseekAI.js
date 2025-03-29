@@ -444,15 +444,25 @@ ${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
       e.reply('请输入有效的预设编号（数字）');
       return true;
     }
-
+  
     const sessionKey = getSessionKey(e);
+    
+    // 会话初始化检查
+    if (!chatSessions[sessionKey]) {
+      chatSessions[sessionKey] = {
+        history: [],
+        presetIndex: 0,    // 默认使用第一个系统预设
+        lastActive: Date.now(),
+        customPrompt: null
+      };
+    }
+  
     if (index >= 0 && index < Presets.length) {
-      chatSessions[sessionKey].presetIndex = index;
-      System_Prompt = Presets[index];
-      e.reply(`已切换至预设${index + 1}：${Presets[index].substring(0, 30)}...`);
+      chatSessions[sessionKey].presetIndex = index;  // 删除 System_Prompt 赋值
+      e.reply(`已切换至预设${index + 1}`);
     } else {
       e.reply(`无效编号，当前可用预设1~${Presets.length}`);
     }
     return true;
-  }   
+  }
 }
