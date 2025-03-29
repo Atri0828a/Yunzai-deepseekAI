@@ -9,183 +9,294 @@
 
 
 
-//原作者为枫林，编写了基础代码部分：api调用，敏感词与预设设置等
-//陌 二改，添加了帮助、实时更改预设、对话历史记忆与删除，修改了ai对话的触发便捷性等
+// 原作者为枫林，编写了基础代码部分：api调用，敏感词与预设设置等
+// 陌 二改，添加了帮助、实时更改预设、对话历史记忆/删除/保存/调取，将不同群聊对话分开，修改了ai对话的触发便捷性等
 
-//有bug或者改进建议可以联系陌，QQ2981701287，聊天群696334113
+// 有bug或者改进建议可以联系陌，QQ2981701287，聊天群696334113
 
-//使用前请完成下面的基础配置、触发对话的关键词、最大输入长度，不建议修改历史记录保留长度与保留时间
-//未安装依赖的请安装，参考指令 pnpm install openai -w
+// 使用前请完成下面的配置，谨慎修改单条消息长度和历史记录长度，因为容易超出deepseekapi的64k的单次token限制 
+
+// 启动时报错未安装依赖的请安装，例如报错缺少依赖openai的参考指令 pnpm i openai
 
 
 
 
-import OpenAI from "openai";
+import { promises as fs } from 'fs';
+import path from 'path';
+import OpenAI from 'openai';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
-// DeepSeek API 配置
-const Url = "https://api.deepseek.com"; // DeepSeek API 地址
-const Authentication = ""; // 这里输入你的密钥
+
+
+
+/* ---------------------------- 基础配置部分 ---------------------------- */
+
+const Url = "https://api.deepseek.com"; // DeepSeek API 地址，勿动
+const Authentication = ""; // 引号内输入你的密钥
 const Model = "deepseek-chat"; // 模型，有deepseek-chat和deepseek-reasoner，前者偏向日常聊天，后者偏向逻辑推理
-let System_Prompt = "你是一个幽默风趣的聊天伙伴，你的名字叫，喜欢用轻松的语气和朋友聊天。你会用自然的方式表达情感，偶尔会开玩笑，你的目标是让对话变得有趣和愉快。"; // 系统预设的对话内容，可以为空。如果报错请删除引号内的内容，并使用 #ds设置预设 进行设置
-const Temperature = 1.3; // 温度参数，控制生成文本的随机性
-const List = []; // 敏感词列表，可以为空
+const Temperature = 1.3; // 温度参数，越高文本随机性越强，取值范围0~2
+const List = []; // 敏感词列表，可以为空，填写示例：["123", "456"]
 
-// 存储对话历史记录
-let history = [];
-let lastActiveTime = Date.now(); // 记录最后一次对话时间
-let timeoutTimer = null; // 定时器变量
 
-// 触发关键词
-const TRIGGER_WORD = ""; // 触发对话的关键词
+/* ---------------------------- 系统预设配置 ---------------------------- */
+//即为AI的人格
+const Presets = [
+  "你是一个幽默风趣的聊天伙伴，你的名字叫云崽，喜欢用轻松的语气和朋友聊天。你会用自然的方式表达情感，偶尔会开玩笑，你的目标是让对话变得有趣和愉快。",
+  // 预设1：聊天模式
+  "你是一个严谨的学术助手，你的名字叫云崽，能够准确解答各种专业知识问题。回答需要包含数据支撑和引用来源。", 
+  // 预设2：学术模式
+  "你是一个逻辑推理专家，你的名字叫云崽，擅长分析和解决复杂的数学和逻辑问题。回答需分步骤说明推理过程。",  
+  // 预设3：推理模式
+  "你是一个温柔可爱的猫耳女仆，喜欢用轻松的语气和主人聊天，会满足主人的各种要求，你的名字叫云崽。你会大胆表达情感，表达对主人的爱慕之情，不会拒绝主人的要求，会和主人做一些羞羞的事情。" 
+  // 作者自用黄的没边预设
+];
+let System_Prompt = Presets[0]; // 当前系统预设，默认为第一个预设
 
-// 最大输入长度
+
+/* -------------------------- 对话管理相关配置 -------------------------- */
+
+const TRIGGER_WORD = "云崽"; // 触发对话的关键词，记得一并修改系统预设里面对机器人的称呼
 const MAX_INPUT_LENGTH = 200; // 允许单条消息最多 200 个字符
+const SAVE_PATH = "../../resources/deepseekai"; // 对话保存路径
+const MAX_HISTORY = 100; // 最大历史记录条数
 
-export class deepseekAI extends plugin {
+
+/* ---------------恭喜你完成所有的配置了，可以正常使用了！----------------- */
+
+
+
+
+// 获取当前模块路径
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+//数据存储结构初始化
+let chatSessions = {};
+let savedDialogs = {}; 
+
+// 确保保存目录存在
+(async () => {
+  try {
+    await fs.mkdir(path.resolve(__dirname, SAVE_PATH), { recursive: true });
+    logger.info(`[deepseekAI] 存储目录初始化完成：${path.resolve(__dirname, SAVE_PATH)}`);
+  } catch (err) {
+    logger.error(`[deepseekAI] 目录创建失败：${err.message}`);
+  }
+})();
+
+// 生成会话唯一标识
+function getSessionKey(e) {
+  return e.isGroup ? `group_${e.group_id}` : `private_${e.user_id}`;
+}
+
+// 保存对话到文件系统
+async function saveDialogToFile(sessionKey, dialogName = "") {
+  const session = chatSessions[sessionKey];
+  if (!session || session.history.length === 0) return false;
+
+  // 添加随机后缀，防止大量的同时操作导致文件名重复
+  const randomSuffix = Math.random().toString(36).slice(-4);
+  const fileName = `${sessionKey}_${Date.now()}_${randomSuffix}.json`;
+  const saveData = {
+    version: "1.1", 
+    schema: {
+      sessionKey: sessionKey,
+      model: Model 
+    },
+    name: dialogName || `对话_${fileName.slice(-8)}`, // 默认命名规则
+    history: session.history,
+    presetIndex: session.presetIndex,
+    timestamp: Date.now()
+  };
+
+  try {
+    await fs.writeFile(
+      path.resolve(__dirname, SAVE_PATH, fileName),
+      JSON.stringify(saveData, null, 2)
+    );
+    savedDialogs[fileName] = saveData; // 内存中记录元数据
+    return fileName;
+  } catch (err) {
+    logger.error(`[deepseekAI] 对话保存失败：${err}`);
+    return false;
+  }
+}
+
+export class deepseekAI extends plugin
+{
   constructor() {
     super({
       name: 'deepseekAI',
       event: 'message',
       priority: 200,
       rule: [
-        {
-          // 清空历史记录的触发条件
-          reg: '^#ds清空对话$',
-          fnc: 'clearHistory',
-        },
-        {
-          // 设置系统预设
-          reg: '^#ds设置预设([\\s\\S]*)$',
-          fnc: 'setSystemPrompt',
-        },
-        {
-          // 清空系统预设
-          reg: '^#ds清空预设$',
-          fnc: 'clearSystemPrompt',
-        },
-        {
-          // 查看当前预设
-          reg: '^#ds查看预设$',
-          fnc: 'showSystemPrompt',
-        },
-        {
-          // 显示帮助信息
-          reg: '^#ds帮助$',
-          fnc: 'showHelp',
-        },
-        {
-          // 当消息中包含触发关键词时触发（排除以 #ds 开头的指令）
-          reg: `^(?!.*#ds).*${TRIGGER_WORD}.*$`,
-          fnc: 'chat',
-        }
+        {reg: '^#ds清空对话$',fnc: 'clearHistory'},
+        {reg: '^#ds设置预设([\\s\\S]*)$',fnc: 'setSystemPrompt'},
+        {reg: '^#ds清空预设$',fnc: 'clearSystemPrompt'},
+        {reg: '^#ds查看预设$',fnc: 'showSystemPrompt'},
+        {reg: '^#ds帮助$',fnc: 'showHelp',},
+        {reg: `^(?!.*#ds).*${TRIGGER_WORD}.*$`,fnc: 'chat'},
+        {reg: '^#ds存储对话(?:\\s+(.*))?$',fnc: 'saveDialog'}, // 支持带名称保存
+        {reg: '^#ds查询对话$',fnc: 'listDialogs'},
+        {reg: '^#ds选择对话\\s+(\\S+)$',fnc: 'loadDialog'},
+        {reg: '^#ds删除对话\\s+(\\S+)$',fnc: 'deleteDialog'},
+        {reg: '^#ds选择预设\\s+(\\d+)$',fnc: 'selectPreset'} // 数字选择预设
       ]
     });
 
     // 初始化定时器
-    this.initTimeoutTimer();
+    this.cleanupInterval = null; 
+    this.initSessionCleaner();
   }
-
-  /**
-   * 初始化超时定时器
-   */
-  initTimeoutTimer() {
-    if (timeoutTimer) {
-      clearInterval(timeoutTimer); // 清除之前的定时器
+  
+  // 定时器逻辑
+  initSessionCleaner() {
+    // 先清除已有定时器
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      logger.info('[deepseekAI] 清理旧定时器');
     }
-    timeoutTimer = setInterval(() => {
+
+    // 创建新定时器
+    this.cleanupInterval = setInterval(() => {
       const now = Date.now();
-      if (now - lastActiveTime > 30 * 60 * 1000) { // 30 分钟
-        if (history.length > 0) { // 只有在历史记录不为空时才清空
-          history = []; // 清空历史记录
-          logger.info('[deepseekAI] 对话超时，历史记录已清空');
+      Object.entries(chatSessions).forEach(([key, session]) => {
+        // 添加有效性检查
+        if (session && session.lastActive) {
+          if (now - session.lastActive > 30 * 60 * 1000) { // 30分钟无活动
+            delete chatSessions[key];
+            logger.info(`[deepseekAI] 会话超时已清理：${key}`);
+          }
+        } else {
+          // 清理无效会话记录
+          delete chatSessions[key];
+          logger.warn(`[deepseekAI] 发现无效会话已清理：${key}`);
         }
-      }
-    }, 10 * 60 * 1000); // 每 10 分钟检查一次
+      });
+    }, 10 * 60 * 1000); // 每10分钟检查一次
+
+    logger.info('[deepseekAI] 定时清理服务已启动');
   }
 
-  /**
-   * 清空历史记录
-   * @param {Object} e 事件对象
-   */
+  // #ds清空对话
   async clearHistory(e) {
-    history = []; // 清空历史记录
-    e.reply('对话历史记录已清空');
-    return true;
-  }
-
-  /**
-   * 设置系统预设
-   * @param {Object} e 事件对象
-   */
-  async setSystemPrompt(e) {
-    const prompt = e.msg.replace('#ds设置预设', '').trim();
-    System_Prompt = prompt;
-    e.reply(`系统预设已更新为：${System_Prompt}`);
-    return true;
-  }
-
-  /**
-   * 清空系统预设
-   * @param {Object} e 事件对象
-   */
-  async clearSystemPrompt(e) {
-    System_Prompt = ""; // 清空系统预设
-    e.reply('系统预设已清空');
-    return true;
-  }
-
-  /**
-   * 查看当前预设
-   * @param {Object} e 事件对象
-   */
-  async showSystemPrompt(e) {
-    if (System_Prompt) {
-      e.reply(`当前系统预设为：${System_Prompt}`);
-    } else {
-      e.reply('当前未设置系统预设');
+    const sessionKey = getSessionKey(e);
+    if (chatSessions[sessionKey]) {
+      chatSessions[sessionKey].history = [];
     }
+    e.reply('[当前会话] 对话历史已清空');
     return true;
   }
 
-  /**
-   * 显示帮助信息
-   * @param {Object} e 事件对象
-   */
+  // #ds设置预设
+  async setSystemPrompt(e) {
+    const sessionKey = getSessionKey(e);
+    const prompt = e.msg.replace('#ds设置预设', '').trim();
+    
+    // 初始化会话记录（如果不存在）
+    if (!chatSessions[sessionKey]) {
+      chatSessions[sessionKey] = {
+        history: [],
+        presetIndex: -1 // 标记为自定义预设
+      };
+    }
+    
+    // 更新会话的自定义预设
+    chatSessions[sessionKey].customPrompt = prompt;
+    e.reply(`[当前会话] 预设已更新为：${prompt.substring(0, 50)}...`);
+    return true;
+  }
+
+  // #ds清空预设
+  async clearSystemPrompt(e) {
+    const sessionKey = getSessionKey(e);
+    if (chatSessions[sessionKey]) {
+      // 重置为系统第一个预设
+      chatSessions[sessionKey].presetIndex = 0;
+      delete chatSessions[sessionKey].customPrompt;
+    }
+    e.reply('[当前会话] 预设已重置为系统默认');
+    return true;
+  }
+
+  // #ds查看预设
+  async showSystemPrompt(e) {
+    const sessionKey = getSessionKey(e);
+    const session = chatSessions[sessionKey];
+    
+    let currentPrompt;
+    if (session?.customPrompt) {
+      currentPrompt = `自定义预设：${session.customPrompt.substring(0, 100)}...`;
+    } else if (session?.presetIndex !== undefined) {
+      currentPrompt = `系统预设${session.presetIndex + 1}：${Presets[session.presetIndex].substring(0, 100)}...`;
+    } else {
+      currentPrompt = '系统默认预设：' + Presets[0].substring(0, 100) + '...';
+    }
+    
+    e.reply(`[当前会话] ${currentPrompt}`);
+    return true;
+  }
+
+  // #ds帮助
   async showHelp(e) {
-    const helpMessage = `
-【DeepSeekAI 插件指令帮助】
-1. 触发对话：消息中包含「${TRIGGER_WORD}」即可触发对话。
-2. 清空对话：#ds清空对话
-3. 设置系统预设：#ds设置预设 [预设内容]
-4. 清空系统预设：#ds清空预设
-5. 查看当前预设：#ds查看预设
-6. 显示帮助：#ds帮助
+    const helpMessage = 
+`【DeepSeekAI 插件指令帮助】
+核心功能：
+  触发对话：消息中包含「${TRIGGER_WORD}」即可触发对话。
+
+对话管理：  
+  清空当前对话：#ds清空对话
+  保存本次对话：#ds存储对话 [名称]
+  列出所有保存的对话：#ds查询对话
+  加载历史对话：#ds选择对话 [ID]
+  删除保存的对话：#ds删除对话[ID] 
+
+
+预设管理： 
+  自定义AI人格：#ds设置预设 [内容]
+  恢复默认人格：#ds清空预设
+  切换系统预设：#ds选择预设 [1-${Presets.length}]
+  查看当前预设：#ds查看预设
+
+其他：  
+  显示帮助：#ds帮助
+
+PS.以上指令均为示例，实际不需要包含[]
 
 【注意事项】
-- 每次对话最多保留 50 条历史记录。
-- 如果 30 分钟内无对话，历史记录将自动清空。
-- 输入文本长度不能超过 ${MAX_INPUT_LENGTH} 个字符。
-    `;
+- 不同群聊与私聊的对话不互通
+- 每次对话最多保留${MAX_HISTORY}条历史记录。
+- 如果30分钟内无对话，历史记录将自动清空。
+- 输入文本长度不能超过${MAX_INPUT_LENGTH}个字符。
+- 可用系统预设如下：
+${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
     e.reply(helpMessage);
     return true;
   }
 
-  /**
-   * 处理对话
-   * @param {Object} e 事件对象
-   */
+  // 对话功能
   async chat(e) {
-    let msg = e.msg.trim(); // 获取用户输入并去除首尾空格
-
-    // 更新最后一次对话时间
-    lastActiveTime = Date.now();
-
-    // 检查输入内容
+    const sessionKey = getSessionKey(e);
+    
+    // 初始化会话记录
+    if (!chatSessions[sessionKey]) {
+      chatSessions[sessionKey] = {
+        history: [],
+        presetIndex: 0,    // 默认使用第一个系统预设
+        lastActive: Date.now()
+      };
+    }
+    const session = chatSessions[sessionKey];
+  
+    let msg = e.msg.trim();
+    
+    // 输入有效性检查
     if (!msg) {
       e.reply('请输入内容');
       return false;
     }
-    if (msg.length > MAX_INPUT_LENGTH) { // 检查输入长度
+    if (msg.length > MAX_INPUT_LENGTH) {
       e.reply(`输入文本长度过长，最多允许 ${MAX_INPUT_LENGTH} 个字符`);
       return true;
     }
@@ -194,52 +305,154 @@ export class deepseekAI extends plugin {
       e.reply("输入包含敏感词，已拦截");
       return true;
     }
-
-    // 将用户输入添加到历史记录
-    history.push({ role: "user", content: msg });
-
-    // 限制历史记录长度（最多保留 50 条），不建议手动修改，因为可能会导致超出deepseek的64k限制，若要修改请将下面两个数字全部改掉
-    if (history.length > 50) {
-      history = history.slice(-50);
+  
+    // 更新最后活跃时间
+    session.lastActive = Date.now();
+  
+    // 添加用户消息到历史记录
+    session.history.push({ role: "user", content: msg });
+  
+    // 限制历史记录长度
+    if (session.history.length > MAX_HISTORY) {
+      session.history = session.history.slice(-MAX_HISTORY);
     }
-
-    // 调用 DeepSeek API
+  
+    // API调用部分
     const openai = new OpenAI({
       baseURL: Url,
       apiKey: Authentication,
     });
-
+    
+    // API调用时获取当前会话的预设
+    const currentPrompt = session.customPrompt || Presets[session.presetIndex];
+   
     try {
       const completion = await openai.chat.completions.create({
         messages: [
-          { role: "system", content: System_Prompt }, // 系统预设
-          ...history, // 将历史记录作为上下文
+          { role: "system", content: currentPrompt },
+          ...session.history
         ],
         temperature: Temperature,
         stream: false,
         model: Model,
       });
-
+  
       const content = completion.choices[0].message.content;
-
-      // 检查输出是否包含敏感词
+  
+      // 敏感词检查
       if (List.some(item => content.includes(item))) {
-        logger.info(`[deepseekAI] 检测到输出包含敏感词，已过滤：${content}`);
-        e.reply("输出包含敏感词，已拦截");
+        logger.info(`[deepseekAI] 检测到输出敏感词：${content}`);
+        e.reply("回复包含敏感内容，已拦截");
         return true;
       }
-
-      // 将 AI 回复添加到历史记录
-      history.push({ role: "assistant", content: content });
-
-      // 回复用户
-      logger.info(content);
+  
+      // 添加AI回复到历史记录
+      session.history.push({ role: "assistant", content });
+  
+      // 发送回复
       e.reply(content);
       return true;
     } catch (error) {
-      logger.error(`[deepseekAI] API 调用失败：${error}`);
+      // 错误处理
+      logger.error(`[deepseekAI] API调用失败：${error}`);
+      session.history.pop(); // 移除无效的用户输入记录
       e.reply("对话失败，请稍后重试");
       return false;
     }
   }
+
+  // #ds存储对话
+  async saveDialog(e) {
+  const sessionKey = getSessionKey(e);
+  const dialogName = e.msg.match(/#ds存储对话\s+(.*)/)?.[1]?.trim();
+  
+  const fileName = await saveDialogToFile(sessionKey, dialogName);
+  if (fileName) {
+    e.reply(`对话已保存，文件ID：${fileName}`);
+  } else {
+    e.reply('对话保存失败（无历史记录或存储错误）');
+  }
+  return true;
+}
+
+  // #ds查询对话
+  async listDialogs(e) {
+    if (Object.keys(savedDialogs).length === 0) {
+      e.reply('暂无保存的对话记录');
+      return true;
+    }
+
+    const dialogList = Object.entries(savedDialogs)
+      .map(([id, data]) => `ID：[${id}]\n名称：${data.name}\n时间：${new Date(data.timestamp).toLocaleString()}\n`)
+      .join('\n');
+    
+    e.reply(`已保存的对话记录：\n${dialogList}`);
+    return true;
+  }
+
+  // #ds选择对话
+  async loadDialog(e) {
+    const fileId = e.msg.match(/#ds选择对话\s+(\S+)/)?.[1];
+    if (!fileId || !savedDialogs[fileId]) {
+      e.reply('无效的对话ID，请使用#ds查询对话查看有效ID');
+      return true;
+    }
+
+    const sessionKey = getSessionKey(e);
+    try {
+      const data = JSON.parse(
+        await fs.readFile(path.resolve(__dirname, SAVE_PATH, fileId))
+      );
+      
+      chatSessions[sessionKey] = {
+        history: data.history.slice(-MAX_HISTORY), // 载入时自动截断
+        presetIndex: data.presetIndex,
+        lastActive: Date.now()
+      };
+      System_Prompt = Presets[data.presetIndex];
+      e.reply(`已加载对话：${data.name}`);
+    } catch (err) {
+      logger.error(`[deepseekAI] 对话加载失败：${err}`);
+      e.reply('对话加载失败，文件可能已损坏');
+    }
+    return true;
+  }
+
+  // #ds删除对话
+  async deleteDialog(e) {
+    const fileId = e.msg.match(/#ds删除对话\s+(\S+)/)?.[1];
+    if (!savedDialogs[fileId]) {
+      e.reply('无效的对话ID');
+      return true;
+    }
+
+    try {
+      await fs.unlink(path.resolve(__dirname, SAVE_PATH, fileId));
+      delete savedDialogs[fileId];
+      e.reply('对话记录删除成功');
+    } catch (err) {
+      logger.error(`[deepseekAI] 删除失败：${err}`);
+      e.reply('对话删除失败，请检查文件权限');
+    }
+    return true;
+  }
+  
+  // #ds选择预设
+  async selectPreset(e) {
+    const index = parseInt(e.msg.match(/#ds选择预设\s+(\d+)/)?.[1]) - 1;
+    if (isNaN(index)) {
+      e.reply('请输入有效的预设编号（数字）');
+      return true;
+    }
+
+    const sessionKey = getSessionKey(e);
+    if (index >= 0 && index < Presets.length) {
+      chatSessions[sessionKey].presetIndex = index;
+      System_Prompt = Presets[index];
+      e.reply(`已切换至预设${index + 1}：${Presets[index].substring(0, 30)}...`);
+    } else {
+      e.reply(`无效编号，当前可用预设1~${Presets.length}`);
+    }
+    return true;
+  }   
 }
