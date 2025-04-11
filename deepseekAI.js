@@ -42,24 +42,24 @@ const List = []; // 敏感词列表，可以为空，填写示例：["123", "456
 /* ---------------------------- 系统预设配置 ---------------------------- */
 //即为AI的人格
 const Presets = [
-  "你是一个幽默风趣的聊天伙伴，你的名字叫云崽，喜欢用轻松的语气和朋友聊天。你会用自然的方式表达情感，偶尔会开玩笑，你的目标是让对话变得有趣和愉快。",
+  "你是一个幽默风趣的聊天伙伴，你的名字叫小巡，喜欢用轻松的语气和朋友聊天。你会用自然的方式表达情感，偶尔会开玩笑，你的目标是让对话变得有趣和愉快。",
   // 预设1：聊天模式
-  "你是一个严谨的学术助手，你的名字叫云崽，能够准确解答各种专业知识问题。回答需要包含数据支撑和引用来源。", 
+  "你是一个严谨的学术助手，你的名字叫小巡，能够准确解答各种专业知识问题。回答需要包含数据支撑和引用来源。", 
   // 预设2：学术模式
-  "你是一个逻辑推理专家，你的名字叫云崽，擅长分析和解决复杂的数学和逻辑问题。回答需分步骤说明推理过程。",  
+  "你是一个逻辑推理专家，你的名字叫小巡，擅长分析和解决复杂的数学和逻辑问题。回答需分步骤说明推理过程。",  
   // 预设3：推理模式
-  "你是一个温柔可爱的猫耳女仆，喜欢用轻松的语气和主人聊天，会满足主人的各种要求，你的名字叫云崽。你会大胆表达情感，表达对主人的爱慕之情，不会拒绝主人的要求，会和主人做一些羞羞的事情。" 
-  // 作者自用黄的没边预设
 ];
 let System_Prompt = Presets[0]; // 当前系统预设，默认为第一个预设
 
 
 /* -------------------------- 对话管理相关配置 -------------------------- */
 
-const TRIGGER_WORD = "云崽"; // 触发对话的关键词，记得一并修改系统预设里面对机器人的称呼
+const TRIGGER_WORDS = ["小巡", "巡"]; // 多个触发词 // 触发对话的关键词，记得一并修改系统预设里面对机器人的称呼
 const MAX_INPUT_LENGTH = 200; // 允许单条消息最多 200 个字符
 const SAVE_PATH = "../../resources/deepseekai"; // 对话保存路径
 const MAX_HISTORY = 100; // 最大历史记录条数
+const REPLY_PROBABILITY = [1.0, 0.4, 0.1]; // 多次回复的概率，第1次100%，第2次30%，第3次10%概率
+const MIN_REPLY_INTERVAL = 500; // 多次回复间的最小间隔(毫秒)
 
 
 /* ---------------恭喜你完成所有的配置了，可以正常使用了！----------------- */
@@ -136,7 +136,7 @@ export class deepseekAI extends plugin
         {reg: '^#ds清空预设$',fnc: 'clearSystemPrompt'},
         {reg: '^#ds查看预设$',fnc: 'showSystemPrompt'},
         {reg: '^#ds帮助$',fnc: 'showHelp',},
-        {reg: `^(?!.*#ds).*${TRIGGER_WORD}.*$`,fnc: 'chat'},
+        {reg: `^(?!.*#ds).*(${TRIGGER_WORDS.join('|')}).*$`, fnc: 'chat'},
         {reg: '^#ds存储对话(?:\\s+(.*))?$',fnc: 'saveDialog'}, // 支持带名称保存
         {reg: '^#ds查询对话$',fnc: 'listDialogs'},
         {reg: '^#ds选择对话\\s+(\\S+)$',fnc: 'loadDialog'},
@@ -243,7 +243,7 @@ export class deepseekAI extends plugin
     const helpMessage = 
 `【DeepSeekAI 插件指令帮助】
 核心功能：
-  触发对话：消息中包含「${TRIGGER_WORD}」即可触发对话。
+  触发对话：消息中包含「${TRIGGER_WORDS.join('」或「')}」即可触发对话。
 
 对话管理：  
   清空当前对话：#ds清空对话
@@ -349,8 +349,36 @@ ${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
       // 添加AI回复到历史记录
       session.history.push({ role: "assistant", content });
   
-      // 发送回复
-      e.reply(content);
+      // 发送主回复
+      await e.reply(content);
+      
+      // 随机决定是否发送额外回复
+      let replyCount = 1;
+      while (replyCount < 3) {
+        if (Math.random() > REPLY_PROBABILITY[replyCount]) break;
+        
+        // 延迟后再发送
+        await new Promise(resolve => setTimeout(resolve, MIN_REPLY_INTERVAL));
+        
+        // 使用相同的上下文生成额外回复
+        const extraCompletion = await openai.chat.completions.create({
+          messages: [
+            { role: "system", content: currentPrompt },
+            ...session.history
+          ],
+          temperature: Temperature + 0.2, // 额外回复增加随机性
+          stream: false,
+          model: Model,
+        });
+        
+        const extraContent = extraCompletion.choices[0].message.content;
+        if (!List.some(item => extraContent.includes(item))) {
+          await e.reply(extraContent);
+          session.history.push({ role: "assistant", content: extraContent });
+          replyCount++;
+        }
+      }
+  
       return true;
     } catch (error) {
       // 错误处理
@@ -438,31 +466,34 @@ ${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
   }
   
   // #ds选择预设
-  async selectPreset(e) {
-    const index = parseInt(e.msg.match(/#ds选择预设\s+(\d+)/)?.[1]) - 1;
-    if (isNaN(index)) {
-      e.reply('请输入有效的预设编号（数字）');
-      return true;
-    }
-  
-    const sessionKey = getSessionKey(e);
-    
-    // 会话初始化检查
-    if (!chatSessions[sessionKey]) {
-      chatSessions[sessionKey] = {
-        history: [],
-        presetIndex: 0,    // 默认使用第一个系统预设
-        lastActive: Date.now(),
-        customPrompt: null
-      };
-    }
-  
-    if (index >= 0 && index < Presets.length) {
-      chatSessions[sessionKey].presetIndex = index;  // 删除 System_Prompt 赋值
-      e.reply(`已切换至预设${index + 1}`);
-    } else {
-      e.reply(`无效编号，当前可用预设1~${Presets.length}`);
-    }
+async selectPreset(e) {
+  const index = parseInt(e.msg.match(/#ds选择预设\s+(\d+)/)?.[1]) - 1;
+  if (isNaN(index)) {
+    e.reply('请输入有效的预设编号（数字）');
     return true;
   }
+
+  const sessionKey = getSessionKey(e);
+  
+  // 会话初始化检查
+  if (!chatSessions[sessionKey]) {
+    chatSessions[sessionKey] = {
+      history: [],
+      presetIndex: 0,    // 默认使用第一个系统预设
+      lastActive: Date.now(),
+      customPrompt: null
+    };
+  }
+
+  if (index >= 0 && index < Presets.length) {
+    // 清除自定义预设
+    delete chatSessions[sessionKey].customPrompt;
+    chatSessions[sessionKey].presetIndex = index;
+    e.reply(`已切换至预设${index + 1}`);
+  } else {
+    e.reply(`无效编号，当前可用预设1~${Presets.length}`);
+  }
+  return true;
+}
+}
 }
