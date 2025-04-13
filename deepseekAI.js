@@ -136,7 +136,7 @@ export class deepseekAI extends plugin
         {reg: '^#ds清空预设$',fnc: 'clearSystemPrompt'},
         {reg: '^#ds查看预设$',fnc: 'showSystemPrompt'},
         {reg: '^#ds帮助$',fnc: 'showHelp',},
-        {reg: `^(?!.*#ds).*(${TRIGGER_WORDS.join('|')}).*$`, fnc: 'chat'},
+        {reg: `^(?!.*#ds)[\\s\\S]*(?:${TRIGGER_WORDS.join('|')})[\\s\\S]*$`, fnc: 'chat'},
         {reg: '^#ds存储对话(?:\\s+(.*))?$',fnc: 'saveDialog'}, // 支持带名称保存
         {reg: '^#ds查询对话$',fnc: 'listDialogs'},
         {reg: '^#ds选择对话\\s+(\\S+)$',fnc: 'loadDialog'},
