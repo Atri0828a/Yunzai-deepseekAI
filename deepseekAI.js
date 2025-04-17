@@ -294,7 +294,7 @@ ${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
     
     // 输入有效性检查
     if (!msg) {
-     // e.reply('请输入内容');
+      e.reply('请输入内容');
       return false;
     }
     if (msg.length > MAX_INPUT_LENGTH) {
