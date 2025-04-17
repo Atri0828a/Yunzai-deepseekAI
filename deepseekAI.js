@@ -16,7 +16,7 @@
 
 // 使用前请完成下面的配置，谨慎修改单条消息长度和历史记录长度，因为容易超出deepseekapi的64k的单次token限制 
 
-// 启动时报错未安装依赖的请安装，例如报错缺少依赖openai的参考指令 pnpm i openai
+// 启动时报错未安装依赖的请安装，例如报错缺少依赖openai的参考指令 pnpm i openai(trss崽)/pnpm i openai -w(喵崽)
 
 
 
@@ -55,10 +55,10 @@ let System_Prompt = Presets[0]; // 当前系统预设，默认为第一个预设
 /* -------------------------- 对话管理相关配置 -------------------------- */
 
 const TRIGGER_WORDS = ["小巡", "巡"]; // 多个触发词 // 触发对话的关键词，记得一并修改系统预设里面对机器人的称呼
-const MAX_INPUT_LENGTH = 200; // 允许单条消息最多 200 个字符
+const MAX_INPUT_LENGTH = 2000; // 允许单条消息最多 200 个字符
 const SAVE_PATH = "../../resources/deepseekai"; // 对话保存路径
 const MAX_HISTORY = 100; // 最大历史记录条数
-const REPLY_PROBABILITY = [1.0, 0.4, 0.1]; // 多次回复的概率，第1次100%，第2次30%，第3次10%概率
+const REPLY_PROBABILITY = [1.0, 0.2, 0.1]; // 多次回复的概率，第1次100%，第2次20%，第3次10%概率
 const MIN_REPLY_INTERVAL = 500; // 多次回复间的最小间隔(毫秒)
 
 
@@ -278,7 +278,7 @@ ${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
   // 对话功能
   async chat(e) {
     const sessionKey = getSessionKey(e);
-    
+  
     // 初始化会话记录
     if (!chatSessions[sessionKey]) {
       chatSessions[sessionKey] = {
@@ -288,12 +288,13 @@ ${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
       };
     }
     const session = chatSessions[sessionKey];
-  
     let msg = e.msg.trim();
+
+
     
     // 输入有效性检查
     if (!msg) {
-      e.reply('请输入内容');
+     // e.reply('请输入内容');
       return false;
     }
     if (msg.length > MAX_INPUT_LENGTH) {
@@ -494,6 +495,5 @@ async selectPreset(e) {
     e.reply(`无效编号，当前可用预设1~${Presets.length}`);
   }
   return true;
-}
 }
 }
