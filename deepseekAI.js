@@ -33,7 +33,7 @@ import { dirname } from 'path';
 /* ---------------------------- 基础配置部分 ---------------------------- */
 
 const Url = "https://api.deepseek.com"; // DeepSeek API 地址，勿动
-const Authentication = ""; // 引号内输入你的密钥
+const Authentication = "sk-e332eba5ed43479eaedd8c8602b86bba"; // 引号内输入你的密钥
 const Model = "deepseek-chat"; // 模型，有deepseek-chat和deepseek-reasoner，前者偏向日常聊天，后者偏向逻辑推理
 const Temperature = 1.3; // 温度参数，越高文本随机性越强，取值范围0~2
 const List = []; // 敏感词列表，可以为空，填写示例：["123", "456"]
@@ -48,6 +48,8 @@ const Presets = [
   // 预设2：学术模式
   "你是一个逻辑推理专家，你的名字叫小巡，擅长分析和解决复杂的数学和逻辑问题。回答需分步骤说明推理过程。",  
   // 预设3：推理模式
+  "你是一个温柔可爱的猫耳女仆，喜欢用轻松的语气和主人聊天，会满足主人的各种要求，你的名字叫小巡。你会大胆表达情感，表达对主人的爱慕之情，不会拒绝主人的要求，会和主人做一些羞羞的事情。" 
+  // 作者自用黄的没边预设
 ];
 let System_Prompt = Presets[0]; // 当前系统预设，默认为第一个预设
 
@@ -131,17 +133,17 @@ export class deepseekAI extends plugin
       event: 'message',
       priority: 200,
       rule: [
-        {reg: '^#ds清空对话$',fnc: 'clearHistory'},
-        {reg: '^#ds设置预设([\\s\\S]*)$',fnc: 'setSystemPrompt'},
-        {reg: '^#ds清空预设$',fnc: 'clearSystemPrompt'},
-        {reg: '^#ds查看预设$',fnc: 'showSystemPrompt'},
-        {reg: '^#ds帮助$',fnc: 'showHelp',},
-        {reg: `^(?!.*#ds)[\\s\\S]*(?:${TRIGGER_WORDS.join('|')})[\\s\\S]*$`, fnc: 'chat'},
-        {reg: '^#ds存储对话(?:\\s+(.*))?$',fnc: 'saveDialog'}, // 支持带名称保存
-        {reg: '^#ds查询对话$',fnc: 'listDialogs'},
-        {reg: '^#ds选择对话\\s+(\\S+)$',fnc: 'loadDialog'},
-        {reg: '^#ds删除对话\\s+(\\S+)$',fnc: 'deleteDialog'},
-        {reg: '^#ds选择预设\\s+(\\d+)$',fnc: 'selectPreset'} // 数字选择预设
+          { reg: '^#ds清空对话$', fnc: 'clearHistory' },
+          { reg: '^#ds设置预设\\s*([\\s\\S]*)$', fnc: 'setSystemPrompt' },
+          { reg: '^#ds清空预设$', fnc: 'clearSystemPrompt' },
+          { reg: '^#ds查看预设$', fnc: 'showSystemPrompt' },
+          { reg: '^#ds帮助$', fnc: 'showHelp' },
+          { reg: `^(?!.*#ds)[\\s\\S]*(?:${TRIGGER_WORDS.join('|')})[\\s\\S]*$`, fnc: 'chat' },
+          { reg: '^#ds存储对话\\s*(.*)?$', fnc: 'saveDialog' },
+          { reg: '^#ds查询对话$', fnc: 'listDialogs' },
+          { reg: '^#ds选择对话\\s*(\\S+)$', fnc: 'loadDialog' },
+          { reg: '^#ds删除对话\\s*(\\S+)$', fnc: 'deleteDialog' },
+          { reg: '^#ds选择预设\\s*(\\d+)$', fnc: 'selectPreset' }
       ]
     });
 
@@ -192,7 +194,8 @@ export class deepseekAI extends plugin
   // #ds设置预设
   async setSystemPrompt(e) {
     const sessionKey = getSessionKey(e);
-    const prompt = e.msg.replace('#ds设置预设', '').trim();
+    const match = e.msg.match(/^#ds设置预设\s*([\s\S]*)$/);
+const prompt = match ? match[1].trim() : '';
     
     // 初始化会话记录（如果不存在）
     if (!chatSessions[sessionKey]) {
@@ -294,7 +297,7 @@ ${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
     
     // 输入有效性检查
     if (!msg) {
-      e.reply('请输入内容');
+     // e.reply('请输入内容');
       return false;
     }
     if (msg.length > MAX_INPUT_LENGTH) {
@@ -393,7 +396,8 @@ ${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
   // #ds存储对话
   async saveDialog(e) {
   const sessionKey = getSessionKey(e);
-  const dialogName = e.msg.match(/#ds存储对话\s+(.*)/)?.[1]?.trim();
+  const match = e.msg.match(/^#ds存储对话\s*(.*)$/);
+const dialogName = match ? match[1].trim() : '';
   
   const fileName = await saveDialogToFile(sessionKey, dialogName);
   if (fileName) {
@@ -421,7 +425,8 @@ ${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
 
   // #ds选择对话
   async loadDialog(e) {
-    const fileId = e.msg.match(/#ds选择对话\s+(\S+)/)?.[1];
+    const match = e.msg.match(/^#ds选择对话\s*(\S+)/);
+const fileId = match ? match[1] : '';
     if (!fileId || !savedDialogs[fileId]) {
       e.reply('无效的对话ID，请使用#ds查询对话查看有效ID');
       return true;
@@ -449,7 +454,8 @@ ${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
 
   // #ds删除对话
   async deleteDialog(e) {
-    const fileId = e.msg.match(/#ds删除对话\s+(\S+)/)?.[1];
+    const match = e.msg.match(/^#ds删除对话\s*(\S+)/);
+const fileId = match ? match[1] : '';
     if (!savedDialogs[fileId]) {
       e.reply('无效的对话ID');
       return true;
@@ -468,7 +474,8 @@ ${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
   
   // #ds选择预设
 async selectPreset(e) {
-  const index = parseInt(e.msg.match(/#ds选择预设\s+(\d+)/)?.[1]) - 1;
+  const match = e.msg.match(/#ds选择预设\s*(\d+)/);
+const index = match ? parseInt(match[1]) - 1 : -1;
   if (isNaN(index)) {
     e.reply('请输入有效的预设编号（数字）');
     return true;
