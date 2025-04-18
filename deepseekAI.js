@@ -33,7 +33,7 @@ import { dirname } from 'path';
 /* ---------------------------- 基础配置部分 ---------------------------- */
 
 const Url = "https://api.deepseek.com"; // DeepSeek API 地址，勿动
-const Authentication = "sk-e332eba5ed43479eaedd8c8602b86bba"; // 引号内输入你的密钥
+const Authentication = ""; // 引号内输入你的密钥
 const Model = "deepseek-chat"; // 模型，有deepseek-chat和deepseek-reasoner，前者偏向日常聊天，后者偏向逻辑推理
 const Temperature = 1.3; // 温度参数，越高文本随机性越强，取值范围0~2
 const List = []; // 敏感词列表，可以为空，填写示例：["123", "456"]
@@ -297,7 +297,7 @@ ${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
     
     // 输入有效性检查
     if (!msg) {
-     // e.reply('请输入内容');
+      e.reply('请输入内容');
       return false;
     }
     if (msg.length > MAX_INPUT_LENGTH) {
