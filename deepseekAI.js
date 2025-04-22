@@ -37,6 +37,7 @@ const Authentication = ""; // 引号内输入你的密钥
 const Model = "deepseek-chat"; // 模型，有deepseek-chat和deepseek-reasoner，前者偏向日常聊天，后者偏向逻辑推理
 const Temperature = 1.3; // 温度参数，越高文本随机性越强，取值范围0~2
 const List = []; // 敏感词列表，可以为空，填写示例：["123", "456"]
+const GROUP_MEMBER_SEPARATE = true; // 群成员对话分离开关，true为开启，false为关闭，默认开启，可用指令临时修改
 
 
 /* ---------------------------- 系统预设配置 ---------------------------- */
@@ -89,8 +90,17 @@ let savedDialogs = {};
 
 // 生成会话唯一标识
 function getSessionKey(e) {
-  return e.isGroup ? `group_${e.group_id}` : `private_${e.user_id}`;
+  if (e.isGroup) {
+    // 群聊
+    return GROUP_MEMBER_SEPARATE 
+      ? `group_${e.group_id}_member_${e.user_id}`  // 开启：群ID+成员ID
+      : `group_${e.group_id}`;                     // 关闭：仅群ID
+  } else {
+    // 私聊
+    return `private_${e.user_id}`;
+  }
 }
+
 
 // 保存对话到文件系统
 async function saveDialogToFile(sessionKey, dialogName = "") {
@@ -143,7 +153,8 @@ export class deepseekAI extends plugin
           { reg: '^#ds查询对话$', fnc: 'listDialogs' },
           { reg: '^#ds选择对话\\s*(\\S+)$', fnc: 'loadDialog' },
           { reg: '^#ds删除对话\\s*(\\S+)$', fnc: 'deleteDialog' },
-          { reg: '^#ds选择预设\\s*(\\d+)$', fnc: 'selectPreset' }
+          { reg: '^#ds选择预设\\s*(\\d+)$', fnc: 'selectPreset' },
+          { reg: '^#ds群聊分离(开启|关闭|状态)$', fnc: 'toggleGroupSeparation' }
       ]
     });
 
@@ -254,6 +265,7 @@ const prompt = match ? match[1].trim() : '';
   列出所有保存的对话：#ds查询对话
   加载历史对话：#ds选择对话 [ID]
   删除保存的对话：#ds删除对话[ID] 
+  群聊对话分离：#ds群聊分离开启/关闭/状态 
 
 
 预设管理： 
@@ -501,6 +513,29 @@ const index = match ? parseInt(match[1]) - 1 : -1;
   } else {
     e.reply(`无效编号，当前可用预设1~${Presets.length}`);
   }
+  return true;
+}
+
+  // #ds群聊分离
+async toggleGroupSeparation(e) {
+  const action = e.msg.match(/^#ds群聊分离(开启|关闭|状态)$/)[1];
+  let replyMsg = '';
+
+  switch (action) {
+    case '开启':
+      GROUP_MEMBER_SEPARATE = true;
+      replyMsg = '已开启：群聊内每个成员的对话将独立记录';
+      break;
+    case '关闭':
+      GROUP_MEMBER_SEPARATE = false;
+      replyMsg = '已关闭：群聊内所有成员共用同一对话历史';
+      break;
+    case '状态':
+      replyMsg = `当前群聊对话分离状态：${GROUP_MEMBER_SEPARATE ? '开启' : '关闭'}`;
+      break;
+  }
+
+  e.reply(replyMsg);
   return true;
 }
 }
