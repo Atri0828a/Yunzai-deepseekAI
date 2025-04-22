@@ -37,4 +37,5 @@ DeepSeek api申请渠道 : [**点击这里**](https://platform.deepseek.com/)
 
 ### 其它问题
 
-有问题/bug反馈/意见请联系QQ: **2981701287**
+有问题/bug反馈/意见请联系QQ: **2981701287**  
+欢迎查看与下载作者更多的发癫小插件：[**详情点击**](https://github.com/Atri0828a/Yunzai-plugins-by-mo)
