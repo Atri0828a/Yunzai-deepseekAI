@@ -2,7 +2,8 @@
 
 ### 介绍
 调用deepseek api进行AI对话  
-原作者[**@枫林**](https://gitee.com/fenglinit)  ，本人获得允许的情况下进行二改
+原作者[**@枫林**](https://gitee.com/fenglinit)  ，本人获得允许的情况下进行二改  
+欢迎查看与下载作者更多的发癫小插件：[**详情点击**](https://github.com/Atri0828a/Yunzai-plugins-by-mo)
 
 ### 安装方式
 
@@ -38,4 +39,4 @@ DeepSeek api申请渠道 : [**点击这里**](https://platform.deepseek.com/)
 ### 其它问题
 
 有问题/bug反馈/意见请联系QQ: **2981701287**  
-欢迎查看与下载作者更多的发癫小插件：[**详情点击**](https://github.com/Atri0828a/Yunzai-plugins-by-mo)
+关于会不会添加艾特机器人触发对话的问题：本人不知道@机器人的正则怎么写，如果写成很宽的匹配然后再检测e.at可能会导致抢指令问题，有懂的大佬可以教我，感激不尽
