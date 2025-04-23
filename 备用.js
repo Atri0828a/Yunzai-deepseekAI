@@ -26,7 +26,7 @@ const Authentication = ""; // 引号内输入你的密钥
 const Model = "deepseek-chat"; // 模型，有deepseek-chat和deepseek-reasoner，前者偏向日常聊天，后者偏向逻辑推理
 const Temperature = 1.3; // 温度参数，越高文本随机性越强，取值范围0~2
 const List = []; // 敏感词列表，可以为空，填写示例：["123", "456"]
-const GROUP_MEMBER_SEPARATE = true; // 群成员对话分离开关，true为开启，false为关闭，默认开启，可用指令临时修改
+const GROUP_MEMBER_SEPARATE = false; // 群成员对话分离开关，true为开启，false为关闭，默认关闭，可在此永久修改或用指令临时修改
 
 
 /* ---------------------------- 系统预设配置 ---------------------------- */
