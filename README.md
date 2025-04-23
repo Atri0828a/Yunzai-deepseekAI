@@ -7,9 +7,17 @@
 
 ### 安装方式
 
-下载deepseekAI.js文件放入example  
-打开文件根据注释进行修改与配置。  
-有问题请根据注释解决。
+1.下载deepseekAI.js文件放入example  
+2.打开文件根据注释进行修改与配置。有问题请根据注释解决。  
+3.首次安装需要依赖  
+喵崽
+```  
+pnpm i openai -w
+```  
+trss崽  
+```  
+pnpm i openai
+```  
 
 ### 功能/指令
 
