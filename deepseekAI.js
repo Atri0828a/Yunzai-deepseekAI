@@ -10,7 +10,7 @@
 
 
 // 原作者为枫林，编写了基础代码部分：api调用，敏感词与预设设置等
-// 陌 二改，添加了帮助、实时更改预设、对话历史记忆/删除/保存/调取，将不同群聊对话分开，修改了ai对话的触发便捷性等
+// 陌 二改，添加了帮助、实时更改预设、对话历史记忆/删除/保存/调取，将不同群聊对话分开，修改了ai对话的触发便捷性，余额查询等
 
 // 有bug或者改进建议可以联系陌，QQ2981701287，聊天群696334113
 
@@ -26,7 +26,7 @@ import path from 'path';
 import OpenAI from 'openai';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-
+import axios from 'axios';
 
 
 
@@ -155,7 +155,8 @@ export class deepseekAI extends plugin
           { reg: '^#ds选择对话\\s*(\\S+)$', fnc: 'loadDialog' },
           { reg: '^#ds删除对话\\s*(\\S+)$', fnc: 'deleteDialog' },
           { reg: '^#ds选择预设\\s*(\\d+)$', fnc: 'selectPreset' },
-          { reg: '^#ds群聊分离(开启|关闭|状态)$', fnc: 'toggleGroupSeparation' }
+          { reg: '^#ds群聊分离(开启|关闭|状态)$', fnc: 'toggleGroupSeparation' },
+          { reg: '^#ds余额查询$', fnc: 'showBalance' }
       ]
     });
   }
@@ -177,6 +178,48 @@ export class deepseekAI extends plugin
 
   logger.info('[deepseekAI] 全局清理定时器已启动');
 }
+
+// 余额查询函数
+  async checkBalance() {
+    try {
+      const response = await axios.get('https://api.deepseek.com/user/balance', {
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${Authentication}`
+        }
+      });
+  
+      logger.info(`[deepseekAI] API余额查询成功: ${JSON.stringify(response.data)}`);
+      return response.data;
+    } catch (error) {
+      logger.error(`[deepseekAI] API余额查询失败: ${error}`);
+      return null;
+    }
+  }
+// #ds余额查询
+async showBalance(e) {
+  const balanceData = await this.checkBalance();
+  if (!balanceData || !balanceData.balance_infos || balanceData.balance_infos.length === 0) {
+    e.reply('API余额查询失败，请稍后再试');
+    return true;
+  }
+
+  // 获取第一个币种的信息
+  const balanceInfo = balanceData.balance_infos[0];
+  
+  const replyMsg = 
+`【DeepSeek API 余额信息】
+货币: ${balanceInfo.currency || '未知'}
+总余额: ${balanceInfo.total_balance || '未知'}
+赠送余额: ${balanceInfo.granted_balance || '未知'}
+充值余额: ${balanceInfo.topped_up_balance || '未知'}
+查询时间: ${new Date().toLocaleString()}`;
+
+  e.reply(replyMsg);
+  return true;
+}
+
+  
 
   // #ds清空对话
   async clearHistory(e) {
@@ -262,6 +305,7 @@ const prompt = match ? match[1].trim() : '';
 
 其他：  
   显示帮助：#ds帮助
+  API余额查询：#ds余额查询
 
 PS.以上指令均为示例，实际不需要包含[]
 
