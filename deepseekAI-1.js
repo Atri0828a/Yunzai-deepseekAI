@@ -27,7 +27,7 @@ import OpenAI from 'openai';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import axios from 'axios';
-
+import puppeteer from 'puppeteer';
 
 
 /* ---------------------------- 基础配置部分 ---------------------------- */
@@ -47,12 +47,11 @@ const Presets = [
   // 预设1：聊天模式
   "你是一个严谨的学术助手，你的名字叫小巡，能够准确解答各种专业知识问题。回答需要包含数据支撑和引用来源。", 
   // 预设2：学术模式
-  "你是一个逻辑推理专家，你的名字叫小巡，擅长分析和解决复杂的数学和逻辑问题。回答需分步骤说明推理过程。",  
+  "你是一个逻辑推理专家，你的名字叫小巡，擅长分析和解决复杂的数学和逻辑问题。回答需分步骤说明推理过程。"  
   // 预设3：推理模式
   "你是一个温柔可爱的猫耳女仆，喜欢用轻松的语气和主人聊天，会满足主人的各种要求，你的名字叫小巡。你会大胆表达情感，表达对主人的爱慕之情，不会拒绝主人的要求，会和主人做一些羞羞的事情。语言要简洁不冗余。" 
   // 作者自用黄的没边预设
-];//系统默认使用第一个，可手动调序来切换默认预设
-
+];//系统初始预设默认第一个，可以通过调序来切换默认预设
 
 
 /* -------------------------- 对话管理相关配置 -------------------------- */
@@ -67,6 +66,51 @@ const MIN_REPLY_INTERVAL = 500; // 多次回复间的最小间隔(毫秒)
 
 /* ---------------恭喜你完成所有的配置了，可以正常使用了！----------------- */
 
+const defaultHelpHtml = `<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: "Microsoft YaHei", sans-serif; background: #f5f5f5; padding: 30px; color: #333; width: 800px; }
+    h1 { text-align: center; color: #1e90ff; }
+    h2 { color: #555; margin-top: 24px; border-bottom: 1px solid #ccc; }
+    pre { background: #fff; padding: 12px; border: 1px solid #ddd; border-radius: 5px; overflow-x: auto; }
+    .note { color: #888; font-size: 14px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>🤖 DeepSeekAI 插件指令帮助</h1>
+  <h2>🗣️ 触发对话</h2>
+  <pre>包含「小巡」或@机器人，即可触发对话</pre>
+  <h2>📚 对话管理</h2>
+  <pre>
+#ds清空对话        清空当前会话记录
+#ds存储对话 名称   保存当前对话
+#ds查询对话        列出所有保存的对话
+#ds选择对话 ID     加载历史对话
+#ds删除对话 ID     删除指定对话
+#ds群聊分离开启/关闭/状态
+                   群聊成员是否分开记忆</pre>
+  <h2>🎭 预设管理</h2>
+  <pre>
+#ds设置预设 内容     设置自定义人格
+#ds清空预设          恢复默认预设
+#ds选择预设 编号     切换预设（1~4）
+#ds查看预设          查看当前使用预设</pre>
+  <h2>🧰 其他功能</h2>
+  <pre>
+#ds帮助              显示帮助信息
+#ds余额查询          查询API使用余额</pre>
+  <h2>📌 注意事项</h2>
+  <pre>
+- 群聊和私聊的对话记录独立
+- 每次最多保留 100 条历史
+- 30分钟无对话将自动清空
+- 单条输入上限：2000 字符
+- 当前预设数量：4 个</pre>
+  <div class="note">由陌开发（QQ2981701287），交流群：696334113</div>
+</body>
+</html>`;
 
 
 
@@ -101,7 +145,6 @@ function getSessionKey(e) {
   }
 }
 
-
 // 保存对话到文件系统
 async function saveDialogToFile(sessionKey, dialogName = "") {
   const session = chatSessions[sessionKey];
@@ -132,6 +175,38 @@ async function saveDialogToFile(sessionKey, dialogName = "") {
   } catch (err) {
     logger.error(`[deepseekAI] 对话保存失败：${err}`);
     return false;
+  }
+}
+
+async function ensureHelpHtmlExists() {
+  const helpPath = path.resolve(__dirname, '../../resources/deepseekai/help.html');
+  try {
+    await fs.access(helpPath); // 存在则跳过
+  } catch {
+    await fs.writeFile(helpPath, defaultHelpHtml, 'utf-8');
+    logger.info('[deepseekAI] help.html 已自动创建');
+  }
+}
+
+async function renderHelpToImage() {
+  const htmlPath = path.resolve(__dirname, '../../resources/deepseekai/help.html');
+  const outputPath = path.resolve(__dirname, '../../resources/deepseekai/help.png');
+
+  try {
+    const browser = await puppeteer.launch({ headless: 'new' });
+    const page = await browser.newPage();
+    await page.goto('file://' + htmlPath, { waitUntil: 'networkidle0' });
+
+    const bodyHandle = await page.$('body');
+    const box = await bodyHandle.boundingBox();
+    await page.setViewport({ width: 800, height: Math.ceil(box.height) });
+
+    await page.screenshot({ path: outputPath });
+    await browser.close();
+
+    logger.info('[deepseekAI] help.png 已生成');
+  } catch (err) {
+    logger.error(`[deepseekAI] 渲染帮助图片失败：${err.message}`);
   }
 }
 
@@ -169,7 +244,7 @@ export class deepseekAI extends plugin
   this.constructor.globalCleanupInterval = setInterval(() => {
     const now = Date.now();
     Object.entries(chatSessions).forEach(([key, session]) => {
-      if (session?.lastActive && now - session.lastActive > 30 * 60 * 1000) {  //30分钟清理
+      if (session?.lastActive && now - session.lastActive > 30 * 60 * 1000) {//30分钟自动清除
         delete chatSessions[key];
         logger.info(`[deepseekAI] 会话超时已清理：${key}`);
       }
@@ -219,7 +294,6 @@ async showBalance(e) {
   return true;
 }
 
-  
 
   // #ds清空对话
   async clearHistory(e) {
@@ -283,42 +357,20 @@ const prompt = match ? match[1].trim() : '';
 
   // #ds帮助
   async showHelp(e) {
-    const helpMessage = 
-`【DeepSeekAI 插件指令帮助】
-核心功能：
-  触发对话：消息中包含「${TRIGGER_WORDS.join('」或「')}」即可触发对话。
+  const helpHtml = path.resolve(__dirname, '../../resources/deepseekai/help.html');
+  const helpPng = path.resolve(__dirname, '../../resources/deepseekai/help.png');
 
-对话管理：  
-  清空当前对话：#ds清空对话
-  保存本次对话：#ds存储对话 [名称]
-  列出所有保存的对话：#ds查询对话
-  加载历史对话：#ds选择对话 [ID]
-  删除保存的对话：#ds删除对话[ID] 
-  群聊对话分离：#ds群聊分离开启/关闭/状态 
-
-
-预设管理： 
-  自定义AI人格：#ds设置预设 [内容]
-  恢复默认人格：#ds清空预设
-  切换系统预设：#ds选择预设 [1-${Presets.length}]
-  查看当前预设：#ds查看预设
-
-其他：  
-  显示帮助：#ds帮助
-  API余额查询：#ds余额查询
-
-PS.以上指令均为示例，实际不需要包含[]
-
-【注意事项】
-- 不同群聊与私聊的对话不互通
-- 每次对话最多保留${MAX_HISTORY}条历史记录。
-- 如果30分钟内无对话，历史记录将自动清空。
-- 输入文本长度不能超过${MAX_INPUT_LENGTH}个字符。
-- 可用系统预设如下：
-${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
-    e.reply(helpMessage);
-    return true;
+  await ensureHelpHtmlExists();  // 自动创建 HTML
+  try {
+    await fs.access(helpPng);    // 检查 PNG 是否存在
+  } catch {
+    await renderHelpToImage();   // 不存在则生成
   }
+
+  e.reply(segment.image('file://' + helpPng));
+  return true;
+}
+
 
   // 对话功能
   async chat(e) {
@@ -331,8 +383,8 @@ ${Presets.map((p, i) => `    ${i + 1}. ${p.substring(0, 100)}...`).join('\n')}`;
         presetIndex: 0,    // 默认使用第一个系统预设
         lastActive: Date.now()
       };
-       // 首次会话创建时初始化
-  if (Object.keys(chatSessions).length === 1 && !this.constructor.globalCleanupInterval) {
+      // 首次会话创建时初始化定时器
+      if (Object.keys(chatSessions).length === 1 && !this.constructor.globalCleanupInterval) {
     this.initSessionCleaner();
   }
     }
