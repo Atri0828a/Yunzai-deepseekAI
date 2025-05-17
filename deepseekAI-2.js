@@ -249,22 +249,28 @@ async checkTrigger(e) {
       }
       
       // 4. 检查触发条件
-      if (e.isGroup) {
-      return (TRIGGER_WORDS || isAtBot) ? this.chat(e) : false;
-    } else {
-      // 私聊：新增判断是否已开启沉浸式对话
-      const deepseekaction = await redis.get("deepseek:" + e.user_id + ":action");
-      if (deepseekaction === "start") {
-        return this.chat(e);
+      const hasTriggerWord = TRIGGER_WORDS.some(word => msg.includes(word));
+      const isAtBot = e.atBot || e.atme;
+      
+      // 群聊和私聊都检查触发词和被@
+      if (hasTriggerWord || isAtBot) {
+          return this.chat(e);
       }
-      return (TRIGGER_WORDS || isAtBot) ? this.chat(e) : false;
-    }
+      
+      // 如果是私聊，额外检查沉浸式对话状态
+      if (!e.isGroup) {
+          const deepseekaction = await redis.get("deepseek:" + e.user_id + ":action");
+          if (deepseekaction === "start") {
+              return this.chat(e);
+          }
+      }
+      
+      return false;
   } catch (err) {
-    logger.error(`[deepseekAI] checkTrigger错误: ${err}`);
-    return false;
+      logger.error(`[deepseekAI] checkTrigger错误: ${err}`);
+      return false;
   }
 }
-
 
 
   // 定时器逻辑
@@ -428,21 +434,6 @@ const prompt = match ? match[1].trim() : '';
     const session = chatSessions[sessionKey];
     let msg = e.msg.trim();
 
-if (e.isGroup) {
-    if (!TRIGGER_WORDS.some(item => msg.includes(item))) {
-      return true;
-    }
-    // 群聊
-  } else {
-    //redis设置动作
-    let deepseekaction = await redis.get("deepseek:" + e.user_id + ":action");
-    if (deepseekaction == "start") {
-    }else{
-      return true;
-    }
-    // 私聊
-  }
-    
     // 输入有效性检查
     if (!msg) {
       e.reply('请输入内容');
