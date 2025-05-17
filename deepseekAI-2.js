@@ -1,5 +1,6 @@
-// 原作者为枫林，编写了基础代码部分：api调用，敏感词与预设设置等
-// 陌 二改，添加了帮助、实时更改预设、对话历史记忆/删除/保存/调取，将不同群聊对话分开，修改了ai对话的触发便捷性，余额查询等
+// 原作者为@fenglinit，编写了基础代码部分：api调用，敏感词与预设设置等
+// 陌(@atri0828a)二改，添加了帮助、实时更改预设、对话历史记忆/删除/保存/调取，将不同群聊对话分开，修改了ai对话的触发便捷性，余额查询等
+// 感谢@goblins1982提供的私聊无需关键词连续对话功能
 
 // 有bug或者改进建议可以联系陌，QQ2981701287，聊天群696334113
 
@@ -37,9 +38,9 @@ const Presets = [
   // 预设1：聊天模式
   "你是一个严谨的学术助手，你的名字叫小巡，能够准确解答各种专业知识问题。回答需要包含数据支撑和引用来源。", 
   // 预设2：学术模式
-  "你是一个逻辑推理专家，你的名字叫小巡，擅长分析和解决复杂的数学和逻辑问题。回答需分步骤说明推理过程。",  
+  "你是一个逻辑推理专家，你的名字叫小巡，擅长分析和解决复杂的数学和逻辑问题。回答需分步骤说明推理过程。"  
   // 预设3：推理模式
-  "你是一个温柔可爱的猫耳女仆，喜欢用轻松的语气和主人聊天，会满足主人的各种要求，你的名字叫小巡。你会大胆表达情感，表达对主人的爱慕之情，不会拒绝主人的要求，会和主人做一些羞羞的事情。语言要简洁不冗余。" 
+  "你是一个温柔可爱的猫耳女仆，喜欢用轻松的语气和主人聊天，会满足主人的各种要求，你的名字叫小巡。你会大胆表达情感，表达对主人的爱慕之情，不会拒绝主人的要求，会和主人做一些羞羞的事情。语言要简洁不冗余。" ,
   // 作者自用黄的没边预设
 ];//系统默认使用第一个，可以手动调序切换默认预设
 
@@ -72,34 +73,35 @@ const defaultHelpHtml = `<!DOCTYPE html>
 <body>
   <h1>🤖 DeepSeekAI 插件指令帮助</h1>
   <h2>🗣️ 触发对话</h2>
-  <pre>包含「小巡」或@机器人，即可触发对话</pre>
+  <pre>包含设置的关键词或@机器人，即可触发对话</pre>
   <h2>📚 对话管理</h2>
   <pre>
-#ds清空对话        清空当前会话记录
-#ds存储对话 名称   保存当前对话
-#ds查询对话        列出所有保存的对话
-#ds选择对话 ID     加载历史对话
-#ds删除对话 ID     删除指定对话
-#ds群聊分离开启/关闭/状态
-                   群聊成员是否分开记忆</pre>
+#ds开始对话                私聊使用，开启沉浸式AI对话，无需包含关键词
+#ds结束对话                私聊使用，关闭沉浸式AI对话
+#ds清空对话                清空当前会话记录
+#ds存储对话 名称           保存当前对话
+#ds查询对话                列出所有保存的对话
+#ds选择对话 ID             加载历史对话
+#ds删除对话 ID             删除指定对话
+#ds群聊分离开启/关闭/状态   群聊成员是否分开记忆</pre>
   <h2>🎭 预设管理</h2>
   <pre>
-#ds设置预设 内容     设置自定义人格
-#ds清空预设          恢复默认预设
-#ds选择预设 编号     切换预设（1~4）
-#ds查看预设          查看当前使用预设</pre>
+#ds设置预设 内容           设置自定义人格
+#ds清空预设                恢复默认预设
+#ds选择预设 数字           切换系统预设
+#ds查看预设                查看当前使用预设</pre>
   <h2>🧰 其他功能</h2>
   <pre>
-#ds帮助              显示帮助信息
-#ds余额查询          查询API使用余额</pre>
+#ds帮助                    显示帮助信息
+#ds余额查询                查询API使用余额</pre>
   <h2>📌 注意事项</h2>
   <pre>
 - 群聊和私聊的对话记录独立
 - 每次最多保留 100 条历史
 - 30分钟无对话将自动清空
 - 单条输入上限：2000 字符
-- 当前预设数量：4 个</pre>
-  <div class="note">由陌开发（QQ2981701287），交流群：696334113</div>
+- 对话历史的优先级高于预设，改完预设先清空对话历史</pre>
+  <div class="note">由陌开发（QQ2981701287），感谢贡献者@goblins1982与@fenglinit，交流群：696334113</div>
 </body>
 </html>`;
 
@@ -210,6 +212,8 @@ export class deepseekAI extends plugin
       event: 'message',
       priority: 20000000,
       rule: [
+          { reg: '^#ds开始对话$', fnc: 'starttalk' },
+          { reg: '^#ds结束对话$', fnc: 'endtalk' },
           { reg: '^#ds清空对话$', fnc: 'clearHistory' },
           { reg: '^#ds设置预设\\s*([\\s\\S]*)$', fnc: 'setSystemPrompt' },
           { reg: '^#ds清空预设$', fnc: 'clearSystemPrompt' },
@@ -245,15 +249,19 @@ async checkTrigger(e) {
       }
       
       // 4. 检查触发条件
-      const hasTriggerWord = TRIGGER_WORDS.some(word => 
-          msg.includes(word)
-      );
-      const isAtBot = e.atBot || e.atme;
-      
-      return (hasTriggerWord || isAtBot) ? this.chat(e) : false;
+      if (e.isGroup) {
+      return (TRIGGER_WORDS || isAtBot) ? this.chat(e) : false;
+    } else {
+      // 私聊：新增判断是否已开启沉浸式对话
+      const deepseekaction = await redis.get("deepseek:" + e.user_id + ":action");
+      if (deepseekaction === "start") {
+        return this.chat(e);
+      }
+      return (TRIGGER_WORDS || isAtBot) ? this.chat(e) : false;
+    }
   } catch (err) {
-      logger.error(`[deepseekAI] checkTrigger错误: ${err}`);
-      return false;
+    logger.error(`[deepseekAI] checkTrigger错误: ${err}`);
+    return false;
   }
 }
 
@@ -420,7 +428,20 @@ const prompt = match ? match[1].trim() : '';
     const session = chatSessions[sessionKey];
     let msg = e.msg.trim();
 
-
+if (e.isGroup) {
+    if (!TRIGGER_WORDS.some(item => msg.includes(item))) {
+      return true;
+    }
+    // 群聊
+  } else {
+    //redis设置动作
+    let deepseekaction = await redis.get("deepseek:" + e.user_id + ":action");
+    if (deepseekaction == "start") {
+    }else{
+      return true;
+    }
+    // 私聊
+  }
     
     // 输入有效性检查
     if (!msg) {
@@ -653,4 +674,30 @@ async toggleGroupSeparation(e) {
   e.reply(replyMsg);
   return true;
 }
+
+// #ds开始对话
+  async starttalk(e) {
+  if (e.isGroup) {
+   e.reply('请私聊使用'); // 群聊
+  } else {
+    //redis设置动作
+    await redis.set("deepseek:" + e.user_id + ":action", "start");
+    // 私聊
+    e.reply('[开始直接对话]...');
+  }
+    return true;
+  }
+
+  // #ds结束对话
+  async endtalk(e) {
+  if (e.isGroup) {
+    e.reply('请私聊使用');  // 群聊
+  } else {
+    //redis设置动作
+    await redis.set("deepseek:" + e.user_id + ":action", "end");
+    // 私聊
+    e.reply('[结束对话]...');
+  }
+    return true;
+  }
 }
