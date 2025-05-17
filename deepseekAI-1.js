@@ -64,53 +64,128 @@ const REPLY_PROBABILITY = [1.0, 0.2, 0.1]; // 多次回复的概率，第1次100
 const MIN_REPLY_INTERVAL = 500; // 多次回复间的最小间隔(毫秒)
 
 
+/* ----------------------------- 其它配置 ------------------------------- */
+
+//你可以自定义帮助图片的背景，命名为背景.jpg，放在resources/deepseekai文件夹中，记得删除旧的help.png和help.html
+//ps：要手动删除的原因其实只是我懒得写替换旧图片的函数而已，嘻嘻
+
 /* ---------------恭喜你完成所有的配置了，可以正常使用了！----------------- */
+
 
 const defaultHelpHtml = `<!DOCTYPE html>
 <html lang="zh">
 <head>
   <meta charset="UTF-8">
   <style>
-    body { font-family: "Microsoft YaHei", sans-serif; background: #f5f5f5; padding: 30px; color: #333; width: 800px; }
-    h1 { text-align: center; color: #1e90ff; }
-    h2 { color: #555; margin-top: 24px; border-bottom: 1px solid #ccc; }
-    pre { background: #fff; padding: 12px; border: 1px solid #ddd; border-radius: 5px; overflow-x: auto; }
-    .note { color: #888; font-size: 14px; margin-top: 8px; }
+  body {
+  font-family: "Microsoft YaHei", sans-serif;
+  background: url("./背景.jpg") no-repeat center top;
+  background-size: cover;
+  padding: 30px;
+  color: #333;
+  font-size: 20px;
+  max-width: none;
+  width: auto;
+  margin: 0 auto;
+  }
+  h1 {
+    text-align: center;
+    color: #1e90ff;
+    font-size: 32px;
+    margin-bottom: 20px;
+  }
+  h2 {
+    color: #444;
+    margin-top: 24px;
+    border-bottom: 1px solid #ccc;
+    font-size: 26px;
+  }
+  table {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.3); /* 半透明白色背景 */
+    border-collapse: collapse;
+    margin-top: 10px;
+    font-size: 18px;
+    table-layout: auto;
+    word-break: break-word;
+  }
+  table, th, td {
+    border: 1px solid #ddd;
+  }
+  th, td {
+    padding: 12px;
+    text-align: left;
+    background: rgba(255, 255, 255, 0.7); /* 半透明白色背景 */
+  }
+  thead {
+    background: rgba(238, 238, 238, 0.7); /* 半透明灰色背景 */
+  }
+  .note {
+    color: #888;
+    font-size: 14px;
+    margin-top: 8px;
+  }
   </style>
 </head>
 <body>
   <h1>🤖 DeepSeekAI 插件指令帮助</h1>
+
   <h2>🗣️ 触发对话</h2>
-  <pre>包含设置的关键词，即可触发对话</pre>
+  <table>
+    <thead><tr><th>操作</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>包含设置的关键词</td><td>即可触发对话</td></tr>
+    </tbody>
+  </table>
+
   <h2>📚 对话管理</h2>
-  <pre>
-#ds清空对话                清空当前会话记录
-#ds存储对话 名称           保存当前对话
-#ds查询对话                列出所有保存的对话
-#ds选择对话 ID             加载历史对话
-#ds删除对话 ID             删除指定对话
-#ds群聊分离开启/关闭/状态  群聊成员是否分开记忆</pre>
+  <table>
+    <thead><tr><th>指令</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>#ds清空对话</td><td>清空当前会话记录</td></tr>
+      <tr><td>#ds存储对话 名称</td><td>保存当前对话</td></tr>
+      <tr><td>#ds查询对话</td><td>列出所有保存的对话</td></tr>
+      <tr><td>#ds选择对话 ID</td><td>加载历史对话</td></tr>
+      <tr><td>#ds删除对话 ID</td><td>删除指定对话</td></tr>
+      <tr><td>#ds群聊分离开启/关闭/状态</td><td>群聊成员是否分开记忆</td></tr>
+    </tbody>
+  </table>
+
   <h2>🎭 预设管理</h2>
-  <pre>
-#ds设置预设 内容           设置自定义人格
-#ds清空预设                恢复默认预设
-#ds选择预设 数字           切换预设
-#ds查看预设                查看当前使用预设</pre>
+  <table>
+    <thead><tr><th>指令</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>#ds设置预设 内容</td><td>设置自定义人格</td></tr>
+      <tr><td>#ds清空预设</td><td>恢复默认预设</td></tr>
+      <tr><td>#ds选择预设 数字</td><td>切换系统预设</td></tr>
+      <tr><td>#ds查看预设</td><td>查看当前使用预设</td></tr>
+    </tbody>
+  </table>
+
   <h2>🧰 其他功能</h2>
-  <pre>
-#ds帮助                   显示帮助信息
-#ds余额查询               查询API使用余额</pre>
+  <table>
+    <thead><tr><th>指令</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>#ds帮助</td><td>显示帮助信息</td></tr>
+      <tr><td>#ds余额查询</td><td>查询API使用余额</td></tr>
+    </tbody>
+  </table>
+
   <h2>📌 注意事项</h2>
-  <pre>
-- 群聊和私聊的对话记录独立
-- 每次最多保留 100 条历史
-- 30分钟无对话将自动清空
-- 单条输入上限：2000 字符
-- 对话历史的优先级高于预设，改完预设先清空对话历史</pre>
-  <div class="note">由陌开发（QQ2981701287），交流群：696334113</div>
+  <table>
+    <thead><tr><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td>群聊和私聊的对话记录独立</td></tr>
+      <tr><td>每次最多保留 100 条历史</td></tr>
+      <tr><td>30分钟无对话将自动清空</td></tr>
+      <tr><td>单条输入上限：2000 字符</td></tr>
+      <tr><td>对话历史的优先级高于预设，改完预设先清空对话历史</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">由陌开发（QQ2981701287），感谢贡献者@goblins1982与@fenglinit，交流群：696334113</div>
 </body>
 </html>`;
-
 
 
 // 获取当前模块路径
