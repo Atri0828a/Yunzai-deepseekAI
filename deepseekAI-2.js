@@ -53,12 +53,12 @@ const SAVE_PATH = "../../resources/deepseekai"; // 对话保存路径
 const MAX_HISTORY = 100; // 最大历史记录条数
 const REPLY_PROBABILITY = [1.0, 0.2, 0.1]; // 多次回复的概率，第1次100%，第2次20%，第3次10%概率
 const MIN_REPLY_INTERVAL = 500; // 多次回复间的最小间隔(毫秒)
+const blacklist = ['123456789', '987654321']; // 黑名单QQ号
 
 
 /* ----------------------------- 其它配置 ------------------------------- */
 
-//你可以自定义帮助图片的背景，命名为背景.jpg，放在resources/deepseekai文件夹中，记得删除旧的help.png和help.html
-//ps：要手动删除的原因其实只是我懒得写替换旧图片的函数而已，嘻嘻
+//你可以自定义帮助图片的背景，命名为背景.jpg，放在resources/deepseekai文件夹中
 
 /* ---------------恭喜你完成所有的配置了，可以正常使用了！----------------- */
 
@@ -310,20 +310,26 @@ export class deepseekAI extends plugin
 // 检查函数
 async checkTrigger(e) {
   try {
-      // 1. 检查消息对象是否有效
+      // 1. 黑名单判断
+      if (blacklist.includes(e.user_id.toString())) {
+        logger.info(`用户 ${e.user_id} 在黑名单中，忽略消息`);
+        return false;
+      }
+
+      // 2. 检查消息对象是否有效
       if (!e || !e.msg) return false;
       
-      // 2. 排除非文本消息（如图片、视频等）
+      // 3. 排除非文本消息（如图片、视频等）
       if (typeof e.msg !== 'string') return false;
       
-      // 3. 排除以特定符号开头的消息
+      // 4. 排除以特定符号开头的消息
       const msg = e.msg.trim();
       const forbiddenStarts = ['#', '*', '~', '%'];
       if (forbiddenStarts.some(char => msg.startsWith(char))) {
           return false;
       }
       
-      // 4. 检查触发条件
+      // 5. 检查触发条件
       const hasTriggerWord = TRIGGER_WORDS.some(word => msg.includes(word));
       const isAtBot = e.atBot || e.atme;
       
@@ -472,18 +478,13 @@ const prompt = match ? match[1].trim() : '';
     return true;
   }
 
-  // #ds帮助
+ // #ds帮助
   async showHelp(e) {
-  const helpHtml = path.resolve(__dirname, '../../resources/deepseekai/help.html');
   const helpPng = path.resolve(__dirname, '../../resources/deepseekai/help.png');
-
-  await ensureHelpHtmlExists();  // 自动创建 HTML
-  try {
-    await fs.access(helpPng);    // 检查 PNG 是否存在
-  } catch {
-    await renderHelpToImage();   // 不存在则生成
-  }
-
+  
+  await ensureHelpHtmlExists();
+  await renderHelpToImage(); 
+  
   e.reply(segment.image('file://' + helpPng));
   return true;
 }
