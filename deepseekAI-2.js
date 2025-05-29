@@ -176,7 +176,7 @@ const defaultHelpHtml = `<!DOCTYPE html>
     </tbody>
   </table>
 
-  <div class="note">由陌开发（QQ2981701287），感谢贡献者@goblins1982与@fenglinit，交流群：696334113</div>
+  <div class="note">由陌开发（QQ2981701287），感谢贡献者@goblins1982与@fenglinit，交流群：1047965118</div>
 </body>
 </html>`;
 
