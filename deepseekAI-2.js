@@ -1,5 +1,5 @@
 // 原作者为@fenglinit，编写了基础代码部分：api调用，敏感词与预设设置等
-// 陌(@atri0828a)二改，添加了帮助、实时更改预设、对话历史记忆/删除/保存/调取，将不同群聊对话分开，修改了ai对话的触发便捷性，余额查询等
+// 陌(@atri0828a)二改，添加了帮助、实时更改预设、黑名单、对话历史记忆/删除/保存/调取，将不同群聊对话分开，修改了ai对话的触发便捷性，余额查询等
 // 感谢@goblins1982提供的私聊无需关键词连续对话功能
 
 // 有bug或者改进建议可以联系陌，QQ2981701287，聊天群1047965118
@@ -64,7 +64,7 @@ const blacklist = ['123456789', '987654321']; // 黑名单QQ号
 
 /* ---------------恭喜你完成所有的配置了，可以正常使用了！----------------- */
 
-const version = `2.1.0`; //你问我这个版本号有什么用？先咕咕咕一点新功能...
+const version = `2.2.0`; 
 
 const defaultHelpHtml = `<!DOCTYPE html>
 <html lang="zh">
@@ -164,6 +164,7 @@ const defaultHelpHtml = `<!DOCTYPE html>
     <tbody>
       <tr><td>#ds帮助</td><td>显示帮助信息</td></tr>
       <tr><td>#ds余额查询</td><td>查询API使用余额</td></tr>
+      <tr><td>#ds查询版本</td><td>查询是否有新版代码</td></tr>
     </tbody>
   </table>
 
@@ -308,7 +309,6 @@ async function renderHelpToImage() {
     await page.screenshot({ 
       path: outputPath,
       type: 'png',
-      quality: 100,
       fullPage: true,
       omitBackground: true
     });
@@ -344,6 +344,7 @@ export class deepseekAI extends plugin
       event: 'message',
       priority: 20000000,
       rule: [
+          { reg: '^#ds查询版本$', fnc: 'checkVersion' },
           { reg: '^#ds开始对话$', fnc: 'starttalk' },
           { reg: '^#ds结束对话$', fnc: 'endtalk' },
           { reg: '^#ds清空对话$', fnc: 'clearHistory' },
@@ -575,6 +576,7 @@ const prompt = match ? match[1].trim() : '';
 其他：  
   显示帮助：#ds帮助
   API余额查询：#ds余额查询
+  查询版本更新：#ds查询版本
 【注意事项】
 - 不同群聊与私聊的对话不互通
 - 每次对话最多保留${MAX_HISTORY}条历史记录。
@@ -862,4 +864,54 @@ async toggleGroupSeparation(e) {
   }
     return true;
   }
+
+    // 版本查询
+  async checkVersion(e) {
+  try {
+    // 获取远程版本信息
+    const remoteUrl = 'https://gitee.com/atri0828a/deepseekAI.js-for-yunzai/raw/master/deepseekAI-2.js';
+    const response = await axios.get(remoteUrl);
+    const remoteCode = response.data;
+    
+    // 从远程代码中提取版本号
+    const remoteVersionMatch = remoteCode.match(/const version = [`'"]([\d.]+)[`'"]/);
+    const remoteVersion = remoteVersionMatch ? remoteVersionMatch[1] : '未知';
+    
+    // 比较版本
+    let updateMsg = '';
+    if (remoteVersion !== '未知') {
+      if (this.compareVersions(remoteVersion, version) > 0) {
+        updateMsg = `\n发现新版本 ${remoteVersion} 可供更新`;
+      } else {
+        updateMsg = `\n当前已是最新版本`;
+      }
+    }
+    
+    e.reply(
+      `版本信息\n` +
+      `当前版本: ${version}\n` +
+      `最新版本: ${remoteVersion}` +
+      updateMsg
+    );
+    
+  } catch (error) {
+    logger.error(`[deepseekAI] 版本检查失败: ${error}`);
+    e.reply('版本检查失败，请检查网络或稍后再试');
+  }
+  return true;
+}
+
+// 版本比较函数
+compareVersions(v1, v2) {
+  const parts1 = v1.split('.').map(Number);
+  const parts2 = v2.split('.').map(Number);
+  
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const num1 = parts1[i] || 0;
+    const num2 = parts2[i] || 0;
+    if (num1 > num2) return 1;
+    if (num1 < num2) return -1;
+  }
+  return 0;
+}
 }
