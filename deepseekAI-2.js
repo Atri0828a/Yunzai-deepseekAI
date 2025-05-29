@@ -8,6 +8,8 @@
 
 // 启动时报错未安装依赖的请安装，例如报错缺少依赖openai的参考指令 pnpm i openai(trss崽)/pnpm i openai -w(喵崽)
 
+// 如果你是服务器挂的云崽遇到图片渲染失败的问题，请往下翻找到 #ds帮助 对应的代码（约540行左右）
+// 也就是showHelp函数，把原有的函数注释掉（两头添加/*和*/），把备用的showHelp函数去注释化（删除两头的/*和*/）
 
 
 
@@ -62,6 +64,7 @@ const blacklist = ['123456789', '987654321']; // 黑名单QQ号
 
 /* ---------------恭喜你完成所有的配置了，可以正常使用了！----------------- */
 
+const version = `2.1.0`; //你问我这个版本号有什么用？先咕咕咕一点新功能...
 
 const defaultHelpHtml = `<!DOCTYPE html>
 <html lang="zh">
@@ -260,20 +263,74 @@ async function renderHelpToImage() {
   const outputPath = path.resolve(__dirname, '../../resources/deepseekai/help.png');
 
   try {
-    const browser = await puppeteer.launch({ headless: 'new' });
+    // 配置Puppeteer启动选项
+    const browser = await puppeteer.launch({
+      headless: 'new', // 使用新的Headless模式
+      args: [
+        '--no-sandbox', // 禁用沙箱，解决root用户问题
+        '--disable-setuid-sandbox', // 禁用setuid沙箱
+        '--disable-dev-shm-usage', // 防止/dev/shm不足
+        '--disable-gpu', // 某些环境下需要禁用GPU加速
+        '--single-process', // 单进程模式，减少资源占用
+        '--no-zygote', // 禁用zygote进程
+        '--disable-software-rasterizer', // 禁用软件光栅化
+        '--disable-extensions', // 禁用扩展
+        '--disable-background-networking' // 禁用后台网络
+      ],
+      executablePath: process.env.CHROMIUM_PATH || undefined, // 可以指定Chromium路径
+      ignoreHTTPSErrors: true, // 忽略HTTPS错误
+      defaultViewport: {
+        width: 1200, // 设置默认视口宽度
+        height: 800 // 设置默认视口高度
+      }
+    });
+
     const page = await browser.newPage();
-    await page.goto('file://' + htmlPath, { waitUntil: 'networkidle0' });
+    
+    // 设置页面超时时间
+    await page.setDefaultNavigationTimeout(60000); // 60秒
+    await page.setDefaultTimeout(30000); // 30秒
 
-    const bodyHandle = await page.$('body');
-    const box = await bodyHandle.boundingBox();
-    await page.setViewport({ width: 800, height: Math.ceil(box.height) });
+    await page.goto('file://' + htmlPath, { 
+      waitUntil: 'networkidle0', // 等待网络空闲
+      timeout: 60000 // 60秒超时
+    });
 
-    await page.screenshot({ path: outputPath });
+    // 自动获取页面尺寸
+    const scrollWidth = await page.evaluate(() => document.body.scrollWidth);
+    const scrollHeight = await page.evaluate(() => document.body.scrollHeight);
+    await page.setViewport({ 
+      width: Math.ceil(scrollWidth), 
+      height: Math.ceil(scrollHeight) 
+    });
+
+    // 截图选项
+    await page.screenshot({ 
+      path: outputPath,
+      type: 'png',
+      quality: 100,
+      fullPage: true,
+      omitBackground: true
+    });
+
     await browser.close();
-
     logger.info('[deepseekAI] help.png 已生成');
   } catch (err) {
     logger.error(`[deepseekAI] 渲染帮助图片失败：${err.message}`);
+    // 失败时尝试更简单的配置
+    try {
+      const fallbackBrowser = await puppeteer.launch({
+        headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+      const fallbackPage = await fallbackBrowser.newPage();
+      await fallbackPage.goto('file://' + htmlPath);
+      await fallbackPage.screenshot({ path: outputPath });
+      await fallbackBrowser.close();
+      logger.info('[deepseekAI] 使用简化配置成功生成help.png');
+    } catch (fallbackErr) {
+      logger.error(`[deepseekAI] 简化配置也失败：${fallbackErr.message}`);
+    }
   }
 }
 
@@ -489,6 +546,44 @@ const prompt = match ? match[1].trim() : '';
   return true;
 }
 
+  //备用方案1，使用已经生成好的图片，具体图片去库里下载，然后放在resources/deepseekai中
+/*async function showHelp(e) {
+  const helpPng = path.resolve(__dirname, '../../resources/deepseekai/help.png');
+  e.reply(segment.image('file://' + helpPng));
+  return true;
+}*/
+
+//备用方案2，使用文字帮助
+/*async showHelp(e) {
+    const helpMessage = 
+`【DeepSeekAI 插件指令帮助】
+核心功能：
+  触发对话：消息中包含「${TRIGGER_WORDS.join('」或「')}」，或者艾特机器人即可触发对话。
+对话管理：  
+  开始无需关键词的连续对话：#ds开始/结束对话
+  清空当前对话：#ds清空对话
+  保存本次对话：#ds存储对话+名称
+  列出所有保存的对话：#ds查询对话
+  加载历史对话：#ds选择对话+ID
+  删除保存的对话：#ds删除对话+ID 
+  群聊对话分离：#ds群聊分离开启/关闭/状态 
+预设管理： 
+  自定义AI人格：#ds设置预设+内容
+  恢复默认人格：#ds清空预设
+  切换系统预设：#ds选择预设1~${Presets.length}
+  查看当前预设：#ds查看预设
+其他：  
+  显示帮助：#ds帮助
+  API余额查询：#ds余额查询
+【注意事项】
+- 不同群聊与私聊的对话不互通
+- 每次对话最多保留${MAX_HISTORY}条历史记录。
+- 如果30分钟内无对话，历史记录将自动清空。
+- 输入文本长度不能超过${MAX_INPUT_LENGTH}个字符。
+- 对话历史的优先级高于预设，改完预设先清空对话历史`;
+    e.reply(helpMessage);
+    return true;
+  }*/ 
 
   // 对话功能
   async chat(e) {
