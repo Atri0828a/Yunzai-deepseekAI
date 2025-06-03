@@ -64,7 +64,7 @@ const blacklist = ['123456789', '987654321']; // 黑名单QQ号
 
 /* ---------------恭喜你完成所有的配置了，可以正常使用了！----------------- */
 
-const version = `2.2.0`; 
+const version = `2.3.0`; 
 
 const defaultHelpHtml = `<!DOCTYPE html>
 <html lang="zh">
@@ -192,6 +192,9 @@ const __dirname = dirname(__filename);
 //数据存储结构初始化
 let chatSessions = {};
 let savedDialogs = {}; 
+const PRESET_SAVE_PATH = path.resolve(__dirname, '../../resources/deepseekai/customPrompts.json');
+let customPrompts = {}; // 存储所有用户的自定义预设
+
 
 // 确保保存目录存在
 (async () => {
@@ -202,6 +205,19 @@ let savedDialogs = {};
     logger.error(`[deepseekAI] 目录创建失败：${err.message}`);
   }
 })();
+
+// 加载已有的自定义预设
+(async () => {
+  try {
+    const data = await fs.readFile(PRESET_SAVE_PATH, 'utf-8');
+    customPrompts = JSON.parse(data);
+    logger.info('[deepseekAI] 自定义预设加载完成');
+  } catch {
+    logger.warn('[deepseekAI] 无自定义预设文件，将创建新文件');
+    customPrompts = {};
+  }
+})();
+
 
 // 生成会话唯一标识
 function getSessionKey(e) {
@@ -259,6 +275,7 @@ async function ensureHelpHtmlExists() {
     logger.info('[deepseekAI] help.html 已自动创建');
   }
 }
+
 async function renderHelpToImage() {
   const htmlPath = path.resolve(__dirname, '../../resources/deepseekai/help.html');
   const outputPath = path.resolve(__dirname, '../../resources/deepseekai/help.png');
@@ -334,6 +351,17 @@ async function renderHelpToImage() {
   }
 }
 
+// 保存预设函数
+async function saveCustomPrompts() {
+  try {
+    await fs.writeFile(PRESET_SAVE_PATH, JSON.stringify(customPrompts, null, 2));
+    logger.info('[deepseekAI] 自定义预设保存成功');
+  } catch (err) {
+    logger.error(`[deepseekAI] 保存自定义预设失败：${err}`);
+  }
+}
+
+
 
 export class deepseekAI extends plugin
 {
@@ -347,9 +375,9 @@ export class deepseekAI extends plugin
           { reg: '^#ds查询版本$', fnc: 'checkVersion' },
           { reg: '^#ds开始对话$', fnc: 'starttalk' },
           { reg: '^#ds结束对话$', fnc: 'endtalk' },
-          { reg: '^#ds清空对话$', fnc: 'clearHistory' },
+          { reg: '^#ds清空对话$|#清除', fnc: 'clearHistory' },
           { reg: '^#ds设置预设\\s*([\\s\\S]*)$', fnc: 'setSystemPrompt' },
-          { reg: '^#ds清空预设$', fnc: 'clearSystemPrompt' },
+          { reg: '^#ds清空预设$|#清空', fnc: 'clearSystemPrompt' },
           { reg: '^#ds查看预设$', fnc: 'showSystemPrompt' },
           { reg: '^#ds帮助$', fnc: 'showHelp' },
           { fnc: 'checkTrigger',log: false  },
@@ -357,7 +385,7 @@ export class deepseekAI extends plugin
           { reg: '^#ds查询对话$', fnc: 'listDialogs' },
           { reg: '^#ds选择对话\\s*(\\S+)$', fnc: 'loadDialog' },
           { reg: '^#ds删除对话\\s*(\\S+)$', fnc: 'deleteDialog' },
-          { reg: '^#ds选择预设\\s*(\\d+)$', fnc: 'selectPreset' },
+          { reg: '^#ds选择预设\\s*(\\d+)$|#切\\s*(\\d+)$', fnc: 'selectPreset' },
           { reg: '^#ds群聊分离(开启|关闭|状态)$', fnc: 'toggleGroupSeparation' },
           { reg: '^#ds余额查询$', fnc: 'showBalance' }
       ]
@@ -368,28 +396,28 @@ export class deepseekAI extends plugin
 // 检查函数
 async checkTrigger(e) {
   try {
-      // 1. 黑名单判断
-      if (blacklist.includes(e.user_id.toString())) {
-        logger.info(`用户 ${e.user_id} 在黑名单中，忽略消息`);
-        return false;
-      }
-
-      // 2. 检查消息对象是否有效
+      
+    if (blacklist.includes(e.user_id.toString())) {
+    logger.info(`用户 ${e.user_id} 在黑名单中，忽略消息`);
+    return false;
+  }
+      // 1. 检查消息对象是否有效
       if (!e || !e.msg) return false;
       
-      // 3. 排除非文本消息（如图片、视频等）
+      // 2. 排除非文本消息（如图片、视频等）
       if (typeof e.msg !== 'string') return false;
       
-      // 4. 排除以特定符号开头的消息
+      // 3. 排除以特定符号开头的消息
       const msg = e.msg.trim();
       const forbiddenStarts = ['#', '*', '~', '%'];
       if (forbiddenStarts.some(char => msg.startsWith(char))) {
           return false;
       }
       
-      // 5. 检查触发条件
+      // 4. 检查触发条件
       const hasTriggerWord = TRIGGER_WORDS.some(word => msg.includes(word));
       const isAtBot = e.atBot || e.atme;
+      
       
       // 群聊和私聊都检查触发词和被@
       if (hasTriggerWord || isAtBot) {
@@ -410,6 +438,7 @@ async checkTrigger(e) {
       return false;
   }
 }
+
 
 
   // 定时器逻辑
@@ -476,6 +505,7 @@ async showBalance(e) {
 }
 
 
+
   // #ds清空对话
   async clearHistory(e) {
     const sessionKey = getSessionKey(e);
@@ -488,66 +518,81 @@ async showBalance(e) {
 
   // #ds设置预设
   async setSystemPrompt(e) {
-    const sessionKey = getSessionKey(e);
-    const match = e.msg.match(/^#ds设置预设\s*([\s\S]*)$/);
-const prompt = match ? match[1].trim() : '';
-    
-    // 初始化会话记录（如果不存在）
-    if (!chatSessions[sessionKey]) {
-      chatSessions[sessionKey] = {
-        history: [],
-        presetIndex: -1 // 标记为自定义预设
-      };
-    }
-    
-    // 更新会话的自定义预设
-    chatSessions[sessionKey].customPrompt = prompt;
-    e.reply(`[当前会话] 预设已更新为：${prompt.substring(0, 50)}...`);
-    return true;
+  const sessionKey = getSessionKey(e);
+  const match = e.msg.match(/^#ds设置预设\s*([\s\S]*)$/);
+  const prompt = match ? match[1].trim() : '';
+
+  // 会话初始化
+  if (!chatSessions[sessionKey]) {
+    chatSessions[sessionKey] = {
+      history: [],
+      presetIndex: -1,
+      lastActive: Date.now()
+    };
   }
 
+  // 设置内存
+  chatSessions[sessionKey].customPrompt = prompt;
+
+  // 保存文件
+  customPrompts[sessionKey] = prompt;
+  await saveCustomPrompts();
+
+  e.reply(`[当前会话] 自定义预设已保存：${prompt.substring(0, 50)}...`);
+  return true;
+}
+
+
   // #ds清空预设
-  async clearSystemPrompt(e) {
-    const sessionKey = getSessionKey(e);
-    if (chatSessions[sessionKey]) {
-      // 重置为系统第一个预设
-      chatSessions[sessionKey].presetIndex = 0;
-      delete chatSessions[sessionKey].customPrompt;
-    }
-    e.reply('[当前会话] 预设已重置为系统默认');
-    return true;
+async clearSystemPrompt(e) {
+  const sessionKey = getSessionKey(e);
+  if (chatSessions[sessionKey]) {
+    chatSessions[sessionKey].presetIndex = 0;  //系统第一个预设
+    delete chatSessions[sessionKey].customPrompt;
   }
+
+  // 同步删除持久化数据
+  delete customPrompts[sessionKey];
+  await saveCustomPrompts();
+
+  e.reply('预设已重置为系统默认');
+  return true;
+}
+
 
   // #ds查看预设
   async showSystemPrompt(e) {
-    const sessionKey = getSessionKey(e);
-    const session = chatSessions[sessionKey];
-    
-    let currentPrompt;
-    if (session?.customPrompt) {
-      currentPrompt = `自定义预设：${session.customPrompt.substring(0, 100)}...`;
-    } else if (session?.presetIndex !== undefined) {
-      currentPrompt = `系统预设${session.presetIndex + 1}：${Presets[session.presetIndex].substring(0, 100)}...`;
-    } else {
-      currentPrompt = '系统默认预设：' + Presets[0].substring(0, 100) + '...';
-    }
-    
-    e.reply(`[当前会话] ${currentPrompt}`);
-    return true;
+  const sessionKey = getSessionKey(e);
+  let promptText;
+
+  if (chatSessions[sessionKey]?.customPrompt) {
+    promptText = `自定义预设（当前会话）：${chatSessions[sessionKey].customPrompt.substring(0, 1000)}...`;
+  } else if (customPrompts[sessionKey]) {
+    promptText = `自定义预设（从文件恢复）：${customPrompts[sessionKey].substring(0, 1000)}...`;
+  } else if (chatSessions[sessionKey]?.presetIndex !== undefined) {
+    const idx = chatSessions[sessionKey].presetIndex;
+    promptText = `系统预设${idx + 1}：${Presets[idx].substring(0, 1000)}...`;
+  } else {
+    promptText = '系统默认预设：' + Presets[0].substring(0, 1000) + '...';
   }
 
- // #ds帮助
+  e.reply(`${promptText}`);
+  return true;
+}
+
+
+  // #ds帮助
   async showHelp(e) {
   const helpPng = path.resolve(__dirname, '../../resources/deepseekai/help.png');
   
   await ensureHelpHtmlExists();
-  await renderHelpToImage(); 
+  await renderHelpToImage(); // 总是重新生成
   
   e.reply(segment.image('file://' + helpPng));
   return true;
 }
 
-  //备用方案1，使用已经生成好的图片，具体图片去库里下载，然后放在resources/deepseekai中
+//备用方案1，使用已经生成好的图片，具体图片去库里下载，然后放在resources/deepseekai中
 /*async function showHelp(e) {
   const helpPng = path.resolve(__dirname, '../../resources/deepseekai/help.png');
   e.reply(segment.image('file://' + helpPng));
@@ -587,6 +632,8 @@ const prompt = match ? match[1].trim() : '';
     return true;
   }*/ 
 
+
+
   // 对话功能
   async chat(e) {
     const sessionKey = getSessionKey(e);
@@ -599,14 +646,20 @@ const prompt = match ? match[1].trim() : '';
         lastActive: Date.now()
       };
 
-      // 首次创建会话时初始化定时器
+    // 自动恢复保存的自定义预设
+    if (customPrompts[sessionKey]) {
+      chatSessions[sessionKey].customPrompt = customPrompts[sessionKey];
+    }
+    
+    // 首次创建会话时初始化定时器
     if (!this.constructor.cleanupInterval) {
       this.initSessionCleaner();
     }
     }
+    
     const session = chatSessions[sessionKey];
     let msg = e.msg.trim();
-
+    
     // 输入有效性检查
     if (!msg) {
       e.reply('请输入内容');
@@ -640,7 +693,7 @@ const prompt = match ? match[1].trim() : '';
     });
     
     // API调用时获取当前会话的预设
-    const currentPrompt = session.customPrompt || Presets[session.presetIndex];
+    const currentPrompt = session.customPrompt || Presets[session.presetIndex ?? 0];
    
     try {
       const completion = await openai.chat.completions.create({
@@ -786,8 +839,14 @@ const fileId = match ? match[1] : '';
   
   // #ds选择预设
 async selectPreset(e) {
-  const match = e.msg.match(/#ds选择预设\s*(\d+)/);
-const index = match ? parseInt(match[1]) - 1 : -1;
+  // 同时匹配两种格式的命令
+  const match = e.msg.match(/^#ds选择预设\s*(\d+)$|#切\s*(\d+)$/);
+  
+  // 获取匹配到的数字（可能是第一个或第二个捕获组）
+  const num = match ? (match[1] || match[2]) : null;
+  
+  // 转换为索引（从0开始）
+  const index = num ? parseInt(num) - 1 : -1;
   if (isNaN(index)) {
     e.reply('请输入有效的预设编号（数字）');
     return true;
@@ -806,11 +865,15 @@ const index = match ? parseInt(match[1]) - 1 : -1;
   }
 
   if (index >= 0 && index < Presets.length) {
-    // 清除自定义预设
-    delete chatSessions[sessionKey].customPrompt;
-    chatSessions[sessionKey].presetIndex = index;
-    e.reply(`已切换至预设${index + 1}`);
-  } else {
+  // 清除自定义预设（包括持久化）
+  delete chatSessions[sessionKey].customPrompt;
+  delete customPrompts[sessionKey];
+  await saveCustomPrompts();
+
+  chatSessions[sessionKey].presetIndex = index;
+  e.reply(`已切换至系统预设 ${index + 1}`);
+}
+ else {
     e.reply(`无效编号，当前可用预设1~${Presets.length}`);
   }
   return true;
@@ -839,7 +902,7 @@ async toggleGroupSeparation(e) {
   return true;
 }
 
-// #ds开始对话
+ // #ds开始对话
   async starttalk(e) {
   if (e.isGroup) {
    e.reply('请私聊使用'); // 群聊
@@ -865,7 +928,7 @@ async toggleGroupSeparation(e) {
     return true;
   }
 
-    // 版本查询
+  // 版本查询
   async checkVersion(e) {
   try {
     // 获取远程版本信息
