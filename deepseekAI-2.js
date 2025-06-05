@@ -64,7 +64,15 @@ const blacklist = ['123456789', '987654321']; // 黑名单QQ号
 
 /* ---------------恭喜你完成所有的配置了，可以正常使用了！----------------- */
 
-const version = `2.3.0`; 
+const version = `2.4.0`; 
+const changelog = {
+  '2.4.0': [
+    '修复查看预设时显示错误的bug',
+    '优化日志结构与错误提示',
+    '优化 #ds查看预设 优先级判断逻辑',
+    '新增远程多源版本检查备用地址'
+  ]
+};
 
 const defaultHelpHtml = `<!DOCTYPE html>
 <html lang="zh">
@@ -396,41 +404,41 @@ export class deepseekAI extends plugin
 // 检查函数
 async checkTrigger(e) {
   try {
-      
-    if (blacklist.includes(e.user_id.toString())) {
-    logger.info(`用户 ${e.user_id} 在黑名单中，忽略消息`);
-    return false;
-  }
-      // 1. 检查消息对象是否有效
+      // 1. 黑名单检查  
+      if (blacklist.includes(e.user_id.toString())) {
+      logger.info(`用户 ${e.user_id} 在黑名单中，忽略消息`);
+      return false;
+      }
+      // 2. 检查消息对象是否有效
       if (!e || !e.msg) return false;
       
-      // 2. 排除非文本消息（如图片、视频等）
+      // 3. 排除非文本消息（如图片、视频等）
       if (typeof e.msg !== 'string') return false;
       
-      // 3. 排除以特定符号开头的消息
+      // 4. 排除以特定符号开头的消息
       const msg = e.msg.trim();
       const forbiddenStarts = ['#', '*', '~', '%'];
       if (forbiddenStarts.some(char => msg.startsWith(char))) {
           return false;
       }
       
-      // 4. 检查触发条件
+      // 5. 检查触发条件
       const hasTriggerWord = TRIGGER_WORDS.some(word => msg.includes(word));
       const isAtBot = e.atBot || e.atme;
       
       
-      // 群聊和私聊都检查触发词和被@
-      if (hasTriggerWord || isAtBot) {
-          return this.chat(e);
-      }
+        // 群聊和私聊都检查触发词和被@
+        if (hasTriggerWord || isAtBot) {
+            return this.chat(e);
+        }
       
-      // 如果是私聊，额外检查沉浸式对话状态
-      if (!e.isGroup) {
-          const deepseekaction = await redis.get("deepseek:" + e.user_id + ":action");
-          if (deepseekaction === "start") {
-              return this.chat(e);
-          }
-      }
+        // 如果是私聊，额外检查沉浸式对话状态
+        if (!e.isGroup) {
+            const deepseekaction = await redis.get("deepseek:" + e.user_id + ":action");
+            if (deepseekaction === "start") {
+                return this.chat(e);
+            }
+        }
       
       return false;
   } catch (err) {
@@ -535,7 +543,10 @@ async showBalance(e) {
   chatSessions[sessionKey].customPrompt = prompt;
 
   // 保存文件
-  customPrompts[sessionKey] = prompt;
+  customPrompts[sessionKey] = {
+  customPrompt: prompt
+  };
+
   await saveCustomPrompts();
 
   e.reply(`[当前会话] 自定义预设已保存：${prompt.substring(0, 50)}...`);
@@ -551,9 +562,14 @@ async clearSystemPrompt(e) {
     delete chatSessions[sessionKey].customPrompt;
   }
 
-  // 同步删除持久化数据
-  delete customPrompts[sessionKey];
+  if (customPrompts[sessionKey]) {
+  delete customPrompts[sessionKey].customPrompt;
+  delete customPrompts[sessionKey].presetIndex;
+  if (Object.keys(customPrompts[sessionKey]).length === 0) {
+    delete customPrompts[sessionKey]; // 全删空
+  }
   await saveCustomPrompts();
+  }
 
   e.reply('预设已重置为系统默认');
   return true;
@@ -563,18 +579,22 @@ async clearSystemPrompt(e) {
   // #ds查看预设
   async showSystemPrompt(e) {
   const sessionKey = getSessionKey(e);
+
+  const session = chatSessions[sessionKey];
   let promptText;
 
-  if (chatSessions[sessionKey]?.customPrompt) {
-    promptText = `自定义预设（当前会话）：${chatSessions[sessionKey].customPrompt.substring(0, 1000)}...`;
-  } else if (customPrompts[sessionKey]) {
-    promptText = `自定义预设（从文件恢复）：${customPrompts[sessionKey].substring(0, 1000)}...`;
-  } else if (chatSessions[sessionKey]?.presetIndex !== undefined) {
-    const idx = chatSessions[sessionKey].presetIndex;
-    promptText = `系统预设${idx + 1}：${Presets[idx].substring(0, 1000)}...`;
+  if (session?.customPrompt) {
+    promptText = `自定义预设：${session.customPrompt.substring(0, 1000)}...`;
+  } else if (customPrompts[sessionKey]?.customPrompt) {
+    promptText = `自定义预设：${customPrompts[sessionKey].customPrompt.substring(0, 1000)}...`;
+  } else if (typeof session?.presetIndex === 'number') {
+    promptText = `系统预设${session.presetIndex + 1}：${Presets[session.presetIndex].substring(0, 1000)}...`;
+  } else if (typeof customPrompts[sessionKey]?.presetIndex === 'number') {
+    promptText = `系统预设${customPrompts[sessionKey].presetIndex + 1}：${Presets[customPrompts[sessionKey].presetIndex].substring(0, 1000)}...`;
   } else {
     promptText = '系统默认预设：' + Presets[0].substring(0, 1000) + '...';
   }
+
 
   e.reply(`${promptText}`);
   return true;
@@ -647,8 +667,14 @@ async clearSystemPrompt(e) {
       };
 
     // 自动恢复保存的自定义预设
-    if (customPrompts[sessionKey]) {
-      chatSessions[sessionKey].customPrompt = customPrompts[sessionKey];
+    const saved = customPrompts[sessionKey];
+    if (saved) {
+      if (saved.customPrompt) {
+        chatSessions[sessionKey].customPrompt = saved.customPrompt;
+      }
+      if (typeof saved.presetIndex === 'number') {
+        chatSessions[sessionKey].presetIndex = saved.presetIndex;
+      }
     }
     
     // 首次创建会话时初始化定时器
@@ -859,15 +885,16 @@ async selectPreset(e) {
     chatSessions[sessionKey] = {
       history: [],
       presetIndex: 0,    // 默认使用第一个系统预设
-      lastActive: Date.now(),
-      customPrompt: null
+      lastActive: Date.now()
     };
   }
 
   if (index >= 0 && index < Presets.length) {
   // 清除自定义预设（包括持久化）
   delete chatSessions[sessionKey].customPrompt;
-  delete customPrompts[sessionKey];
+  customPrompts[sessionKey] = {
+      presetIndex: index
+    };
   await saveCustomPrompts();
 
   chatSessions[sessionKey].presetIndex = index;
@@ -930,39 +957,73 @@ async toggleGroupSeparation(e) {
 
   // 版本查询
   async checkVersion(e) {
-  try {
-    // 获取远程版本信息
-    const remoteUrl = 'https://gitee.com/atri0828a/deepseekAI.js-for-yunzai/raw/master/deepseekAI-2.js';
-    const response = await axios.get(remoteUrl);
-    const remoteCode = response.data;
-    
-    // 从远程代码中提取版本号
-    const remoteVersionMatch = remoteCode.match(/const version = [`'"]([\d.]+)[`'"]/);
-    const remoteVersion = remoteVersionMatch ? remoteVersionMatch[1] : '未知';
-    
-    // 比较版本
-    let updateMsg = '';
-    if (remoteVersion !== '未知') {
-      if (this.compareVersions(remoteVersion, version) > 0) {
-        updateMsg = `\n发现新版本 ${remoteVersion} 可供更新`;
-      } else {
-        updateMsg = `\n当前已是最新版本`;
-      }
+  const remoteUrls = [
+    'https://gitee.com/atri0828a/deepseekAI.js-for-yunzai/raw/master/deepseekAI-2.js',
+    'https://raw.githubusercontent.com/Atri0828a/Yunzai-deepseekAI/refs/heads/master/deepseekAI-2.js'
+  ];
+
+  let remoteCode = null;
+  let successfulUrl = null;
+
+  for (const url of remoteUrls) {
+    try {
+      const response = await axios.get(url, { timeout: 5000 });
+      remoteCode = response.data;
+      successfulUrl = url;
+      break;
+    } catch {
+      logger.warn(`[deepseekAI] 无法访问远程地址：${url}`);
     }
-    
-    e.reply(
-      `版本信息\n` +
-      `当前版本: ${version}\n` +
-      `最新版本: ${remoteVersion}` +
-      updateMsg
-    );
-    
-  } catch (error) {
-    logger.error(`[deepseekAI] 版本检查失败: ${error}`);
-    e.reply('版本检查失败，请检查网络或稍后再试');
   }
+
+  if (!remoteCode) {
+    e.reply('版本检查失败，所有远程地址均无法访问');
+    return true;
+  }
+
+  // 提取远程版本号
+  const versionMatch = remoteCode.match(/const\s+version\s*=\s*['"`]([\d.]+)['"`]/);
+  const remoteVersion = versionMatch?.[1] ?? '未知';
+
+  // 提取 changelog JSON 字符串（简单匹配整个 changelog 对象）
+  const changelogMatch = remoteCode.match(/const\s+changelog\s*=\s*({[\s\S]*?});/);
+  let changelogObj = {};
+  if (changelogMatch) {
+    try {
+      // 使用 eval 安全地解析对象字面量
+      changelogObj = eval(`(${changelogMatch[1]})`);
+    } catch (err) {
+      logger.warn('[deepseekAI] changelog 解析失败');
+    }
+  }
+
+  // 获取远程 changelog
+  const remoteChanges = changelogObj?.[remoteVersion] || [];
+
+  let updateMsg = '';
+  if (this.compareVersions(remoteVersion, version) > 0) {
+    updateMsg = `\n发现新版本 ${remoteVersion} 可供更新`;
+  } else {
+    updateMsg = `\n当前已是最新版本`;
+  }
+
+  const changelogText = remoteChanges.length
+    ? `\n\n📋 新版本更新内容：\n- ${remoteChanges.join('\n- ')}`
+    : '';
+
+  e.reply(
+    `版本信息：\n` +
+    `当前版本：${version}\n` +
+    `最新版本：${remoteVersion}\n` +
+    `数据来源：${successfulUrl}` +
+    updateMsg +
+    changelogText
+  );
+
   return true;
 }
+
+
 
 // 版本比较函数
 compareVersions(v1, v2) {
