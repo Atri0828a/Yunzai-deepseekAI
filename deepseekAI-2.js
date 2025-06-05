@@ -1008,7 +1008,7 @@ async toggleGroupSeparation(e) {
   }
 
   const changelogText = remoteChanges.length
-    ? `\n\n📋 新版本更新内容：\n- ${remoteChanges.join('\n- ')}`
+    ? `\n\n新版本更新内容：\n- ${remoteChanges.join('\n- ')}`
     : '';
 
   e.reply(
