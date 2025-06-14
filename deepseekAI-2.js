@@ -64,15 +64,16 @@ const blacklist = ['123456789', '987654321']; // 黑名单QQ号
 
 /* ---------------恭喜你完成所有的配置了，可以正常使用了！----------------- */
 
-const version = `2.4.0`; 
+const version = '2.5.0';
+
 const changelog = {
-  '2.4.0': [
-    '修复查看预设时显示错误的bug',
-    '优化日志结构与错误提示',
-    '优化 #ds查看预设 优先级判断逻辑',
-    '新增远程多源版本检查备用地址'
+  '2.5.0': [
+    '修复无法读取保存的对话的问题',
+    '优化相关报错提示',
   ]
 };
+ 
+
 
 const defaultHelpHtml = `<!DOCTYPE html>
 <html lang="zh">
@@ -226,6 +227,24 @@ let customPrompts = {}; // 存储所有用户的自定义预设
   }
 })();
 
+// 加载已保存的对话文件
+(async () => {
+  try {
+    const files = await fs.readdir(path.resolve(__dirname, SAVE_PATH));
+    for (const file of files) {
+      if (file.endsWith('.json')) {
+        const fullPath = path.resolve(__dirname, SAVE_PATH, file);
+        const content = await fs.readFile(fullPath, 'utf-8');
+        const data = JSON.parse(content);
+        savedDialogs[file] = data;
+      }
+    }
+    logger.info('[deepseekAI] 已加载保存的对话文件：' + (Object.keys(savedDialogs).length -1 ));
+  } catch (err) {
+    logger.error(`[deepseekAI] 加载对话文件失败：${err.message}`);
+  }
+})();
+
 
 // 生成会话唯一标识
 function getSessionKey(e) {
@@ -242,37 +261,30 @@ function getSessionKey(e) {
 
 
 // 保存对话到文件系统
-async function saveDialogToFile(sessionKey, dialogName = "") {
+async function saveDialogToFile(e) {
+  const sessionKey = getSessionKey(e);
   const session = chatSessions[sessionKey];
-  if (!session || session.history.length === 0) return false;
+  if (!session || !session.history?.length) {
+    e.reply('当前会话没有任何对话记录，无法保存');
+    return true;
+  }
 
-  // 添加随机后缀，防止大量的同时操作导致文件名重复
-  const randomSuffix = Math.random().toString(36).slice(-4);
-  const fileName = `${sessionKey}_${Date.now()}_${randomSuffix}.json`;
+  const name = `group_${e.group_id}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.json`;
+  const savePath = path.resolve(__dirname, SAVE_PATH, name);
+
   const saveData = {
-    version: "1.1", 
-    schema: {
-      sessionKey: sessionKey,
-      model: Model 
-    },
-    name: dialogName || `对话_${fileName.slice(-8)}`, // 默认命名规则
     history: session.history,
-    presetIndex: session.presetIndex,
-    timestamp: Date.now()
+    presetIndex: session.presetIndex ?? 0,
+    model: session.model || Model,
+    customPrompt: session.customPrompt || undefined,
+    createdAt: Date.now()
   };
 
-  try {
-    await fs.writeFile(
-      path.resolve(__dirname, SAVE_PATH, fileName),
-      JSON.stringify(saveData, null, 2)
-    );
-    savedDialogs[fileName] = saveData; // 内存中记录元数据
-    return fileName;
-  } catch (err) {
-    logger.error(`[deepseekAI] 对话保存失败：${err}`);
-    return false;
-  }
+  await fs.writeFile(savePath, JSON.stringify(saveData, null, 2));
+  e.reply(`对话已保存为 ${name}`);
+  return true;
 }
+
 
 async function ensureHelpHtmlExists() {
   const helpPath = path.resolve(__dirname, '../../resources/deepseekai/help.html');
@@ -790,7 +802,7 @@ async clearSystemPrompt(e) {
   const match = e.msg.match(/^#ds存储对话\s*(.*)$/);
 const dialogName = match ? match[1].trim() : '';
   
-  const fileName = await saveDialogToFile(sessionKey, dialogName);
+  const fileName = await saveDialogToFile(e,sessionKey, dialogName);
   if (fileName) {
     e.reply(`对话已保存，文件ID：${fileName}`);
   } else {
@@ -801,47 +813,68 @@ const dialogName = match ? match[1].trim() : '';
 
   // #ds查询对话
   async listDialogs(e) {
-    if (Object.keys(savedDialogs).length === 0) {
-      e.reply('暂无保存的对话记录');
+  try {
+    const files = await fs.readdir(path.resolve(__dirname, SAVE_PATH));
+    const dialogFiles = files
+      .filter(f => f.endsWith('.json') && f !== 'customPrompts.json')
+      .sort((a, b) => fs.statSync(path.resolve(__dirname, SAVE_PATH, b)).mtimeMs -
+                      fs.statSync(path.resolve(__dirname, SAVE_PATH, a)).mtimeMs);
+
+    if (!dialogFiles.length) {
+      e.reply('当前无保存的对话记录');
       return true;
     }
 
-    const dialogList = Object.entries(savedDialogs)
-      .map(([id, data]) => `ID：[${id}]\n名称：${data.name}\n时间：${new Date(data.timestamp).toLocaleString()}\n`)
-      .join('\n');
-    
-    e.reply(`已保存的对话记录：\n${dialogList}`);
-    return true;
+    const msg = ['当前保存的对话文件如下：'];
+    dialogFiles.slice(0, 20).forEach((file, i) => {
+      msg.push(`${i + 1}. ${file}`);
+    });
+    e.reply(msg.join('\n'));
+  } catch (err) {
+    logger.error(`[deepseekAI] 查询对话出错：${err.message}`);
+    e.reply('查询失败，请检查插件文件权限或路径');
   }
+  return true;
+}
+
 
   // #ds选择对话
   async loadDialog(e) {
-    const match = e.msg.match(/^#ds选择对话\s*(\S+)/);
-const fileId = match ? match[1] : '';
-    if (!fileId || !savedDialogs[fileId]) {
-      e.reply('无效的对话ID，请使用#ds查询对话查看有效ID');
-      return true;
-    }
-
-    const sessionKey = getSessionKey(e);
-    try {
-      const data = JSON.parse(
-        await fs.readFile(path.resolve(__dirname, SAVE_PATH, fileId))
-      );
-      
-      chatSessions[sessionKey] = {
-        history: data.history.slice(-MAX_HISTORY), // 载入时自动截断
-        presetIndex: data.presetIndex,
-        lastActive: Date.now()
-      };
-      System_Prompt = Presets[data.presetIndex];
-      e.reply(`已加载对话：${data.name}`);
-    } catch (err) {
-      logger.error(`[deepseekAI] 对话加载失败：${err}`);
-      e.reply('对话加载失败，文件可能已损坏');
-    }
+  const match = e.msg.match(/^#ds选择对话\s*(.+\.json)$/);
+  if (!match) {
+    e.reply('请提供有效的对话文件名（.json）');
     return true;
   }
+
+  const fileName = match[1];
+  const filePath = path.resolve(__dirname, SAVE_PATH, fileName);
+
+  try {
+    const data = JSON.parse(await fs.readFile(filePath, 'utf-8'));
+
+    const sessionKey = getSessionKey(e);
+
+    chatSessions[sessionKey] = {
+      history: data.history || [],
+      presetIndex: typeof data.presetIndex === 'number' ? data.presetIndex : 0,
+      lastActive: Date.now(),
+      model: data.model || defaultModel
+    };
+
+    if (data.customPrompt) {
+      chatSessions[sessionKey].customPrompt = data.customPrompt;
+    }
+
+    e.reply(`对话文件 ${fileName} 已成功载入`);
+  } catch (err) {
+    logger.error(`[deepseekAI] 对话加载失败：${err.message}`);
+    logger.error(err.stack);
+    e.reply('对话加载失败，文件可能已损坏');
+  }
+
+  return true;
+}
+
 
   // #ds删除对话
   async deleteDialog(e) {
