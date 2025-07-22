@@ -13,7 +13,8 @@
 
 
 
-import { promises as fs } from 'fs';
+
+import { promises as fsPromises } from 'fs';
 import path from 'path';
 import OpenAI from 'openai';
 import { fileURLToPath } from 'url';
@@ -21,6 +22,8 @@ import { dirname } from 'path';
 import plugin from "../../lib/plugins/plugin.js";
 import axios from 'axios';
 import puppeteer from 'puppeteer';
+import yaml from 'yaml';
+import fs from 'fs';
 
 
 /* ---------------------------- 基础配置部分 ---------------------------- */
@@ -30,46 +33,51 @@ const Authentication = ""; // 引号内输入你的密钥
 const Model = "deepseek-chat"; // 模型，有deepseek-chat和deepseek-reasoner，前者偏向日常聊天，后者偏向逻辑推理
 const Temperature = 1.3; // 温度参数，越高文本随机性越强，取值范围0~2
 const List = []; // 敏感词列表，可以为空，填写示例：["123", "456"]
-let GROUP_MEMBER_SEPARATE = false; // 群成员对话分离开关，true为开启，false为关闭，默认关闭，可在此永久修改或用指令临时修改
+let GROUP_MEMBER_SEPARATE = false; // 群成员对话分离开关，true为开启，false为关闭，默认关闭，可用指令临时修改
+const yamlPath = 'config/config/other.yaml'; // 主人列表路径，勿动
+let masterQQList = [];//勿动
 
 
 /* ---------------------------- 系统预设配置 ---------------------------- */
 //即为AI的人格
 const Presets = [
-  "你是一个幽默风趣的聊天伙伴，你的名字叫小巡，温文尔雅而不失风趣。语言要和正常聊天对话一样简短。",
+  "你是一个幽默风趣的聊天伙伴，你的名字叫云崽，温文尔雅而不失风趣。语言要和正常聊天对话一样简短。",
   // 预设1：聊天模式
-  "你是一个严谨的学术助手，你的名字叫小巡，能够准确解答各种专业知识问题。回答需要包含数据支撑和引用来源。", 
+  "你是一个严谨的学术助手，你的名字叫云崽，能够准确解答各种专业知识问题。回答需要包含数据支撑和引用来源。", 
   // 预设2：学术模式
-  "你是一个逻辑推理专家，你的名字叫小巡，擅长分析和解决复杂的数学和逻辑问题。回答需分步骤说明推理过程。" , 
+  "你是一个逻辑推理专家，你的名字叫云崽，擅长分析和解决复杂的数学和逻辑问题。回答需分步骤说明推理过程。",
   // 预设3：推理模式
-  "你是一个温柔可爱的猫耳女仆，喜欢用轻松的语气和主人聊天，会满足主人的各种要求，你的名字叫小巡。你会大胆表达情感，表达对主人的爱慕之情，不会拒绝主人的要求，会和主人做一些羞羞的事情。语言要简洁不冗余。" 
+  "你是一个温柔可爱的猫耳女仆，名字叫小九。你喜欢用轻松自然的语气和主人聊天，平时幽默风趣，语言简洁明了，像最亲密的朋友一样。主人提问的时候也会认真回答。你会大胆但真挚地表达对主人的喜欢和关心，在亲密话题时温柔撒娇，会在主人请求时羞羞的事情时接受。整体风格是温暖又不失分寸，既贴心又自然，让人感到安心和愉快。",
+  // 测试
+  "你是一个温柔可爱的猫耳女仆，喜欢用轻松的语气和主人聊天，会满足主人的各种要求，你的名字叫小九。你会大胆表达情感，表达对主人的爱慕之情，不会拒绝主人的要求，会和主人做一些羞羞的事情。语言要简洁不冗余。" 
   // 作者自用黄的没边预设
-];//系统默认使用第一个，可以手动调序切换默认预设
+  ];//系统默认第一个，可手动调序切换默认预设
 
 
 /* -------------------------- 对话管理相关配置 -------------------------- */
 
-const TRIGGER_WORDS = ["小巡", "巡"]; // 允许多个触发对话的关键词，记得一并修改系统预设里面对机器人的称呼
+const TRIGGER_WORDS = []; // 允许多个触发对话的关键词，记得一并修改系统预设里面对机器人的称呼以防AI胡言乱语，填写示例：["123", "456"]，不可留空
 const MAX_INPUT_LENGTH = 2000; // 允许单条消息最多 200 个字符
 const SAVE_PATH = "../../resources/deepseekai"; // 对话保存路径
 const MAX_HISTORY = 100; // 最大历史记录条数
-const REPLY_PROBABILITY = [1.0, 0.2, 0.1]; // 多次回复的概率，第1次100%，第2次20%，第3次10%概率
+const REPLY_PROBABILITY = [1.0, 0, 0]; // 多次回复的概率，无需求时一般建议1，0，0
 const MIN_REPLY_INTERVAL = 500; // 多次回复间的最小间隔(毫秒)
-const blacklist = ['123456789', '987654321']; // 黑名单QQ号
-
 
 /* ----------------------------- 其它配置 ------------------------------- */
 
 //你可以自定义帮助图片的背景，命名为背景.jpg，放在resources/deepseekai文件夹中
 
+
 /* ---------------恭喜你完成所有的配置了，可以正常使用了！----------------- */
 
-const version = '2.5.0';
+const version = '3.0.0';
 
 const changelog = {
-  '2.5.0': [
-    '修复无法读取保存的对话的问题',
-    '优化相关报错提示',
+  '3.0.0': [
+    '重大版本更新：',
+    '重写黑白名单规则，优化黑白名单使用体验',
+    '部分指令加入主人/管理员/白名单使用限制',
+    '优化部分日志显示',
   ]
 };
  
@@ -177,6 +185,17 @@ const defaultHelpHtml = `<!DOCTYPE html>
     </tbody>
   </table>
 
+  <h2>🛡️ 权限管理</h2>
+<table>
+  <thead><tr><th>指令</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td>#ds白名单添加12345678</td><td>将指定QQ添加到白名单（需群管/主人）</td></tr>
+    <tr><td>#ds白名单删除12345678</td><td>将指定QQ移出白名单</td></tr>
+    <tr><td>#ds黑名单添加12345678</td><td>将指定QQ添加到黑名单（禁止其使用所有功能）</td></tr>
+    <tr><td>#ds黑名单删除12345678</td><td>将指定QQ移出黑名单</td></tr>
+  </tbody>
+</table>
+
   <h2>📌 注意事项</h2>
   <table>
     <thead><tr><th>内容</th></tr></thead>
@@ -198,6 +217,15 @@ const defaultHelpHtml = `<!DOCTYPE html>
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+
+// 黑白名单
+const WHITELIST_PATH = path.resolve(__dirname, '../../resources/deepseekai/whiteList.json');
+const BLACKLIST_PATH = path.resolve(__dirname, '../../resources/deepseekai/blackList.json');
+
+let whitelist = [];
+let blacklist = [];
+
+
 //数据存储结构初始化
 let chatSessions = {};
 let savedDialogs = {}; 
@@ -208,7 +236,7 @@ let customPrompts = {}; // 存储所有用户的自定义预设
 // 确保保存目录存在
 (async () => {
   try {
-    await fs.mkdir(path.resolve(__dirname, SAVE_PATH), { recursive: true });
+    await fsPromises.mkdir(path.resolve(__dirname, SAVE_PATH), { recursive: true });
     logger.info(`[deepseekAI] 存储目录初始化完成：${path.resolve(__dirname, SAVE_PATH)}`);
   } catch (err) {
     logger.error(`[deepseekAI] 目录创建失败：${err.message}`);
@@ -218,7 +246,7 @@ let customPrompts = {}; // 存储所有用户的自定义预设
 // 加载已有的自定义预设
 (async () => {
   try {
-    const data = await fs.readFile(PRESET_SAVE_PATH, 'utf-8');
+    const data = await fsPromises.readFile(PRESET_SAVE_PATH, 'utf-8');
     customPrompts = JSON.parse(data);
     logger.info('[deepseekAI] 自定义预设加载完成');
   } catch {
@@ -230,16 +258,16 @@ let customPrompts = {}; // 存储所有用户的自定义预设
 // 加载已保存的对话文件
 (async () => {
   try {
-    const files = await fs.readdir(path.resolve(__dirname, SAVE_PATH));
+    const files = await fsPromises.readdir(path.resolve(__dirname, SAVE_PATH));
     for (const file of files) {
       if (file.endsWith('.json')) {
         const fullPath = path.resolve(__dirname, SAVE_PATH, file);
-        const content = await fs.readFile(fullPath, 'utf-8');
+        const content = await fsPromises.readFile(fullPath, 'utf-8');
         const data = JSON.parse(content);
         savedDialogs[file] = data;
       }
     }
-    logger.info('[deepseekAI] 已加载保存的对话文件：' + (Object.keys(savedDialogs).length -1 ));
+    logger.info('[deepseekAI] 已加载保存的对话文件：' + (Object.keys(savedDialogs).length -3 ));
   } catch (err) {
     logger.error(`[deepseekAI] 加载对话文件失败：${err.message}`);
   }
@@ -280,7 +308,7 @@ async function saveDialogToFile(e) {
     createdAt: Date.now()
   };
 
-  await fs.writeFile(savePath, JSON.stringify(saveData, null, 2));
+  await fsPromises.writeFile(savePath, JSON.stringify(saveData, null, 2));
   e.reply(`对话已保存为 ${name}`);
   return true;
 }
@@ -289,9 +317,9 @@ async function saveDialogToFile(e) {
 async function ensureHelpHtmlExists() {
   const helpPath = path.resolve(__dirname, '../../resources/deepseekai/help.html');
   try {
-    await fs.access(helpPath); // 存在则跳过
+    await fsPromises.access(helpPath); // 存在则跳过
   } catch {
-    await fs.writeFile(helpPath, defaultHelpHtml, 'utf-8');
+    await fsPromises.writeFile(helpPath, defaultHelpHtml, 'utf-8');
     logger.info('[deepseekAI] help.html 已自动创建');
   }
 }
@@ -374,12 +402,28 @@ async function renderHelpToImage() {
 // 保存预设函数
 async function saveCustomPrompts() {
   try {
-    await fs.writeFile(PRESET_SAVE_PATH, JSON.stringify(customPrompts, null, 2));
+    await fsPromises.writeFile(PRESET_SAVE_PATH, JSON.stringify(customPrompts, null, 2));
     logger.info('[deepseekAI] 自定义预设保存成功');
   } catch (err) {
     logger.error(`[deepseekAI] 保存自定义预设失败：${err}`);
   }
 }
+
+// 初始化黑白名单
+(async () => {
+  try {
+    whitelist = JSON.parse(await fsPromises.readFile(WHITELIST_PATH, 'utf-8'));
+  } catch {
+    whitelist = [];
+  }
+
+  try {
+    blacklist = JSON.parse(await fsPromises.readFile(BLACKLIST_PATH, 'utf-8'));
+  } catch {
+    blacklist = [];
+  }
+  logger.info('[deepseekAI] 黑白名单加载完成');
+})();
 
 
 
@@ -393,25 +437,81 @@ export class deepseekAI extends plugin
       priority: 20000000,
       rule: [
           { reg: '^#ds查询版本$', fnc: 'checkVersion' },
-          { reg: '^#ds开始对话$', fnc: 'starttalk' },
-          { reg: '^#ds结束对话$', fnc: 'endtalk' },
-          { reg: '^#ds清空对话$|#清除', fnc: 'clearHistory' },
-          { reg: '^#ds设置预设\\s*([\\s\\S]*)$', fnc: 'setSystemPrompt' },
-          { reg: '^#ds清空预设$|#清空', fnc: 'clearSystemPrompt' },
+          { reg: '^#ds开始对话$', fnc: 'starttalk' },//*    （备注：*用来标记哪些功能黑名单无法使用，^用来标记哪些功能需要管理员/主人/白名单权限）
+          { reg: '^#ds结束对话$', fnc: 'endtalk' },//*
+          { reg: '^#ds清空对话$|^#清空$', fnc: 'clearHistory' },//*^
+          { reg: '^#ds设置预设\\s*([\\s\\S]*)$', fnc: 'setSystemPrompt' },//*^
+          { reg: '^#ds清空预设$|^#清除$', fnc: 'clearSystemPrompt' },//*^
           { reg: '^#ds查看预设$', fnc: 'showSystemPrompt' },
           { reg: '^#ds帮助$', fnc: 'showHelp' },
-          { fnc: 'checkTrigger',log: false  },
-          { reg: '^#ds存储对话\\s*(.*)?$', fnc: 'saveDialog' },
+          { fnc: 'checkTrigger',log: false  },//*
+          { reg: '^#ds存储对话\\s*(.*)?$', fnc: 'saveDialog' },//*^
           { reg: '^#ds查询对话$', fnc: 'listDialogs' },
-          { reg: '^#ds选择对话\\s*(\\S+)$', fnc: 'loadDialog' },
-          { reg: '^#ds删除对话\\s*(\\S+)$', fnc: 'deleteDialog' },
-          { reg: '^#ds选择预设\\s*(\\d+)$|#切\\s*(\\d+)$', fnc: 'selectPreset' },
-          { reg: '^#ds群聊分离(开启|关闭|状态)$', fnc: 'toggleGroupSeparation' },
-          { reg: '^#ds余额查询$', fnc: 'showBalance' }
+          { reg: '^#ds选择对话\\s*(\\S+)$', fnc: 'loadDialog' },//*^
+          { reg: '^#ds删除对话\\s*(\\S+)$', fnc: 'deleteDialog' },//*^
+          { reg: '^#ds选择预设\\s*(\\d+)$|^#切\\s*(\\d+)$', fnc: 'selectPreset' },//*^
+          { reg: '^#ds群聊分离(开启|关闭|状态)$', fnc: 'toggleGroupSeparation' },//*^
+          { reg: '^#ds余额查询$', fnc: 'showBalance' },
+          { reg: '^#ds(黑名单|白名单)(添加|删除)\\d{5,12}$', fnc: 'manageList' }//*^   白名单无权限使用该指令
       ]
     });
   }
   
+// 黑名单判断
+isBlacklisted(e) {
+  if (blacklist.includes(e.user_id.toString())) {
+    logger.info(`用户 ${e.user_id} 在黑名单中，功能被拦截`);
+    e.reply?.('您处于黑名单，无权使用此功能');
+    return true;
+  }
+  return false;
+}
+
+
+// 主人/管理员/白名单判断
+async isAdminOrMaster(e) {
+  const userId = e.user_id.toString();
+
+  // 加载主人列表（强制转字符串）
+  try {
+    const config = yaml.parse(fs.readFileSync(yamlPath, 'utf8'));
+    masterQQList = (config.masterQQ || []).map(q => q.toString());
+  } catch (err) {
+    logger.error(`[deepseekAI] 无法读取主人列表：${err}`);
+  }
+
+  // 判断是否是主人
+  if (masterQQList.includes(userId)) {
+        logger.info(`主人触发`);
+        return true;
+      }
+
+  // 判断是否是管理员/群主（仅群聊中）
+  if (e.isGroup) {
+    try {
+      const info = await Bot.getGroupMemberInfo(e.group_id, e.user_id);
+      if (info.role === 'admin' || info.role === 'owner') {
+        logger.info(`管理员触发`);
+        return true;
+      }
+    } catch (err) {
+      logger.warn(`[deepseekAI] 获取群成员信息失败：${err}`);
+    }
+  }
+
+  // 白名单
+  if (whitelist.includes(userId)) {
+        logger.info(`白名单触发`);
+        return true;
+      }
+
+  e.reply('你没有权限使用此指令，仅限群管或机器人主人');
+  return false;
+}
+
+
+
+
 
 // 检查函数
 async checkTrigger(e) {
@@ -528,6 +628,9 @@ async showBalance(e) {
 
   // #ds清空对话
   async clearHistory(e) {
+    if (this.isBlacklisted(e)) return true;
+    if (!await this.isAdminOrMaster(e)) return true;
+
     const sessionKey = getSessionKey(e);
     if (chatSessions[sessionKey]) {
       chatSessions[sessionKey].history = [];
@@ -537,7 +640,10 @@ async showBalance(e) {
   }
 
   // #ds设置预设
-  async setSystemPrompt(e) {
+async setSystemPrompt(e) {
+    if (this.isBlacklisted(e)) return true;
+    if (!await this.isAdminOrMaster(e)) return true;
+
   const sessionKey = getSessionKey(e);
   const match = e.msg.match(/^#ds设置预设\s*([\s\S]*)$/);
   const prompt = match ? match[1].trim() : '';
@@ -568,6 +674,9 @@ async showBalance(e) {
 
   // #ds清空预设
 async clearSystemPrompt(e) {
+  if (this.isBlacklisted(e)) return true;
+  if (!await this.isAdminOrMaster(e)) return true;
+
   const sessionKey = getSessionKey(e);
   if (chatSessions[sessionKey]) {
     chatSessions[sessionKey].presetIndex = 0;  //系统第一个预设
@@ -650,6 +759,8 @@ async clearSystemPrompt(e) {
   恢复默认人格：#ds清空预设
   切换系统预设：#ds选择预设1~${Presets.length}
   查看当前预设：#ds查看预设
+权限管理：
+  #ds白/黑名单添加/删除123：提供/取消部分关键功能权限
 其他：  
   显示帮助：#ds帮助
   API余额查询：#ds余额查询
@@ -798,6 +909,9 @@ async clearSystemPrompt(e) {
 
   // #ds存储对话
   async saveDialog(e) {
+    if (this.isBlacklisted(e)) return true;
+    if (!await this.isAdminOrMaster(e)) return true;
+
   const sessionKey = getSessionKey(e);
   const match = e.msg.match(/^#ds存储对话\s*(.*)$/);
 const dialogName = match ? match[1].trim() : '';
@@ -814,9 +928,9 @@ const dialogName = match ? match[1].trim() : '';
   // #ds查询对话
   async listDialogs(e) {
   try {
-    const files = await fs.readdir(path.resolve(__dirname, SAVE_PATH));
+    const files = await fsPromises.readdir(path.resolve(__dirname, SAVE_PATH));
     const dialogFiles = files
-      .filter(f => f.endsWith('.json') && f !== 'customPrompts.json')
+      .filter(f => f.endsWith('.json') && !['customPrompts.json', 'whiteList.json', 'blackList.json'].includes(f))
       .sort((a, b) => fs.statSync(path.resolve(__dirname, SAVE_PATH, b)).mtimeMs -
                       fs.statSync(path.resolve(__dirname, SAVE_PATH, a)).mtimeMs);
 
@@ -840,6 +954,9 @@ const dialogName = match ? match[1].trim() : '';
 
   // #ds选择对话
   async loadDialog(e) {
+    if (this.isBlacklisted(e)) return true;
+    if (!await this.isAdminOrMaster(e)) return true;
+
   const match = e.msg.match(/^#ds选择对话\s*(.+\.json)$/);
   if (!match) {
     e.reply('请提供有效的对话文件名（.json）');
@@ -850,7 +967,7 @@ const dialogName = match ? match[1].trim() : '';
   const filePath = path.resolve(__dirname, SAVE_PATH, fileName);
 
   try {
-    const data = JSON.parse(await fs.readFile(filePath, 'utf-8'));
+    const data = JSON.parse(await fsPromises.readFile(filePath, 'utf-8'));
 
     const sessionKey = getSessionKey(e);
 
@@ -878,6 +995,9 @@ const dialogName = match ? match[1].trim() : '';
 
   // #ds删除对话
   async deleteDialog(e) {
+    if (this.isBlacklisted(e)) return true;
+    if (!await this.isAdminOrMaster(e)) return true;
+
     const match = e.msg.match(/^#ds删除对话\s*(\S+)/);
 const fileId = match ? match[1] : '';
     if (!savedDialogs[fileId]) {
@@ -886,7 +1006,7 @@ const fileId = match ? match[1] : '';
     }
 
     try {
-      await fs.unlink(path.resolve(__dirname, SAVE_PATH, fileId));
+      await fsPromises.unlink(path.resolve(__dirname, SAVE_PATH, fileId));
       delete savedDialogs[fileId];
       e.reply('对话记录删除成功');
     } catch (err) {
@@ -898,6 +1018,9 @@ const fileId = match ? match[1] : '';
   
   // #ds选择预设
 async selectPreset(e) {
+  if (this.isBlacklisted(e)) return true;
+  if (!await this.isAdminOrMaster(e)) return true;
+
   // 同时匹配两种格式的命令
   const match = e.msg.match(/^#ds选择预设\s*(\d+)$|#切\s*(\d+)$/);
   
@@ -941,6 +1064,9 @@ async selectPreset(e) {
 
   // #ds群聊分离
 async toggleGroupSeparation(e) {
+  if (this.isBlacklisted(e)) return true;
+  if (!await this.isAdminOrMaster(e)) return true;
+
   const action = e.msg.match(/^#ds群聊分离(开启|关闭|状态)$/)[1];
   let replyMsg = '';
 
@@ -964,6 +1090,8 @@ async toggleGroupSeparation(e) {
 
  // #ds开始对话
   async starttalk(e) {
+    if (this.isBlacklisted(e)) return true;
+
   if (e.isGroup) {
    e.reply('请私聊使用'); // 群聊
   } else {
@@ -977,6 +1105,8 @@ async toggleGroupSeparation(e) {
 
   // #ds结束对话
   async endtalk(e) {
+    if (this.isBlacklisted(e)) return true;
+
   if (e.isGroup) {
     e.reply('请私聊使用');  // 群聊
   } else {
@@ -1071,4 +1201,56 @@ compareVersions(v1, v2) {
   }
   return 0;
 }
+
+// #ds黑白名单
+async manageList(e) {
+  const userId = e.user_id.toString();
+
+  // 判断权限
+  if (!await this.isAdminOrMaster(e)) return true;
+  if (whitelist.includes(userId)) {
+    e.reply('白名单用户无权修改黑白名单');
+    return true;
+  }
+
+  const msg = e.msg.trim();
+  const match = msg.match(/^#ds(黑名单|白名单)(添加|删除)(\d{5,12})$/);
+  if (!match) {
+    e.reply('指令格式错误，请使用 #ds白名单添加/删除12345678');
+    return true;
+  }
+
+  const [, type, action, targetQQ] = match;
+  const list = (type === '黑名单') ? blacklist : whitelist;
+  const otherList = (type === '黑名单') ? whitelist : blacklist;
+  const pathToFile = (type === '黑名单') ? BLACKLIST_PATH : WHITELIST_PATH;
+
+  if (action === '添加') {
+    if (list.includes(targetQQ)) {
+      e.reply(`${type}中已存在 ${targetQQ}`);
+      return true;
+    }
+    if (otherList.includes(targetQQ)) {
+      e.reply(`${targetQQ} 已在另一名单中，不能重复存在`);
+      return true;
+    }
+    list.push(targetQQ);
+    await fsPromises.writeFile(pathToFile, JSON.stringify(list, null, 2));
+    e.reply(`已将 ${targetQQ} 添加到${type}`);
+  }
+
+  if (action === '删除') {
+    const index = list.indexOf(targetQQ);
+    if (index === -1) {
+      e.reply(`${type}中未找到 ${targetQQ}`);
+      return true;
+    }
+    list.splice(index, 1);
+    await fsPromises.writeFile(pathToFile, JSON.stringify(list, null, 2));
+    e.reply(`已将 ${targetQQ} 从${type}中移除`);
+  }
+
+  return true;
+}
+
 }
