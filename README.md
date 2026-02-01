@@ -9,7 +9,7 @@
 
 1.下载deepseekAI.js文件放入example  
 2.打开文件根据注释进行修改与配置。有问题请根据注释解决。  
-3.首次安装需要依赖openai和axios，，下面是openai依赖的安装指令，axios同理  
+3.首次安装需要依赖openai和axios，下面是openai依赖的安装指令，axios同理  
 喵崽
 ```  
 pnpm i openai -w
