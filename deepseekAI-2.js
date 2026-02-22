@@ -8,7 +8,7 @@
 
 // 启动时报错未安装依赖的请安装，例如报错缺少依赖openai的参考指令 pnpm i openai(trss崽)/pnpm i openai -w(喵崽)
 
-// 如果你是服务器挂的云崽遇到图片渲染失败的问题，请往下翻找到 #ds帮助 对应的代码（约615行左右）
+// 如果你是服务器挂的云崽遇到图片渲染失败的问题，请往下翻找到 #ds帮助 对应的代码（约740行左右）
 // 也就是showHelp函数，把原有的函数注释掉（两头添加/*和*/），把备用的showHelp函数去注释化（删除两头的/*和*/）
 
 
@@ -70,15 +70,12 @@ const MIN_REPLY_INTERVAL = 500; // 多次回复间的最小间隔(毫秒)
 
 /* ---------------恭喜你完成所有的配置了，可以正常使用了！----------------- */
 
-const version = '3.0.1';
+const version = '4.0.0';
 
 const changelog = {
-  '3.0.1': [
-    '重大版本更新：',
-    '重写黑白名单规则，优化黑白名单使用体验',
-    '部分指令加入主人/管理员/白名单使用限制',
-    '优化部分日志显示',
-    '优化系统预设词以更接近真人的聊天体验'
+  '4.0.0': [
+    '新功能:',
+    '能够识别上文的文本',
   ]
 };
  
@@ -808,7 +805,77 @@ async clearSystemPrompt(e) {
     }
     
     const session = chatSessions[sessionKey];
-    let msg = e.msg.trim();
+
+    // 获取回复上下文
+let replyText = ''
+let replySender = ''
+let replyIsBot = false
+
+if (e.source || e.message?.some(m => m.type === 'reply')) {
+  try {
+    let replyMsg
+
+    // ICQQ
+    if (e.source) {
+      if (e.isGroup) {
+        replyMsg = await e.group.getChatHistory(e.source.seq, 1)
+      } else {
+        replyMsg = await e.friend.getChatHistory(e.source.time, 1)
+      }
+    }
+
+    // NapCat / OneBot
+    if (!replyMsg) {
+      const replySeg = e.message.find(m => m.type === 'reply')
+      if (replySeg) {
+        if (e.isGroup) {
+          replyMsg = await e.group.getChatHistory(replySeg.id, 1)
+        } else {
+          replyMsg = await e.friend.getChatHistory(replySeg.id, 1)
+        }
+      }
+    }
+
+    if (replyMsg && replyMsg[0]) {
+      const msgObj = replyMsg[0]
+
+      replyText = msgObj.message
+        .filter(m => m.type === 'text')
+        .map(m => m.text)
+        .join('')
+
+      replySender = msgObj.sender?.card || msgObj.sender?.nickname || msgObj.sender?.user_id
+      replyIsBot = msgObj.sender?.user_id == Bot.uin
+    }
+
+  } catch (err) {
+    logger.error('获取被回复消息失败', err)
+  }
+}
+
+// 当前用户发送内容
+let msg = e.msg.trim()
+
+// ===== 合并上下文 =====
+let finalMsg = msg
+
+if (replyText) {
+  if (replyIsBot) {
+    finalMsg =
+`你之前说：
+${replyText}
+
+用户回复：
+${msg}`
+  } else {
+    finalMsg =
+`用户「${replySender}」说：
+${replyText}
+
+用户回复：
+${msg}`
+  }
+}
     
     // 输入有效性检查
     if (!msg) {
@@ -829,7 +896,7 @@ async clearSystemPrompt(e) {
     session.lastActive = Date.now();
   
     // 添加用户消息到历史记录
-    session.history.push({ role: "user", content: msg });
+    session.history.push({ role: "user", content: finalMsg });
   
     // 限制历史记录长度
     if (session.history.length > MAX_HISTORY) {
@@ -1255,5 +1322,6 @@ async manageList(e) {
 }
 
 }
+
 
 
