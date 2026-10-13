@@ -57,7 +57,7 @@ import fs from 'fs';
 /* ---------------------------- 基础配置部分 ---------------------------- */
 
 const Url = "https://api.deepseek.com"; // DeepSeek API 地址，勿动
-const Authentication = "sk-69cc179e54d14dac87022552b819b73f"; // 引号内输入你的密钥
+const Authentication = ""; // 引号内输入你的密钥
 const DEFAULT_MODEL = "deepseek-flash"; // 默认模型；可用 #ds模型 查询并切换
 const VISION_MODEL_PREFERENCE = "deepseek-flash"; // 当前会话模型不支持图片时，临时改用的模型
 const Temperature = 1.3; // 温度参数，越高文本随机性越强，取值范围0~2（注意：思考模式下该参数会被官方忽略）
