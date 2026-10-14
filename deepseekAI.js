@@ -2109,8 +2109,8 @@ async toggleGroupSeparation(e) {
   if (this.blockIfGroupBlacklisted(e)) return false;
 
   const remoteUrls = [
-    'https://gitee.com/atri0828a/deepseekAI.js-for-yunzai/raw/master/deepseekAI-2.js',
-    'https://raw.githubusercontent.com/Atri0828a/Yunzai-deepseekAI/refs/heads/master/deepseekAI-2.js'
+    'https://gitee.com/atri0828a/deepseekAI.js-for-yunzai/raw/master/deepseekAI.js',
+    'https://raw.githubusercontent.com/Atri0828a/Yunzai-deepseekAI/refs/heads/master/deepseekAI.js'
   ];
 
   let remoteCode = null;
