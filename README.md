@@ -2,7 +2,7 @@
 
 ### 介绍
 调用deepseek api进行AI对话  
-**强烈建议下载与使用该文件：deepseekAI.js，因为功能更加完善**，deepseekAI-1.js暂时废弃（仅用作古早版本代码备份），目前我仅对deepseekAI.js进行维护  
+**强烈建议下载与使用该文件：deepseekAI.js，因为功能更加完善**，目前我仅对deepseekAI.js进行维护 ,deepseekAI-1.js暂时废弃（仅用作古早版本代码备份），deepseekAI-2.js现在仅用作新版本日志记录，以兼容旧版本插件的版本查询功能
 欢迎查看与下载作者更多的发癫小插件：[**详情点击**](https://gitee.com/atri0828a/Yunzai-plugins)  
 咕了这么久的识图功能我终于写好了
 
