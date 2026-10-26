@@ -89,6 +89,12 @@ const Presets = [
   // 测试
   ];//系统默认第一个，可手动调序切换默认预设
 
+// 预设名称列表：与上面的 Presets 一一对应（顺序、数量必须完全一致）
+// 仅用于 #ds选择预设 的提示与回显，改 Presets 时请同步改这里
+const PresetNames = [
+  '聊天模式',
+  '测试'
+];
 
 /* -------------------------- 对话管理相关配置 -------------------------- */
 
@@ -2031,8 +2037,21 @@ async selectPreset(e) {
   await saveSessionSettings(sessionKey, { presetIndex: index });
 
   chatSessions[sessionKey].presetIndex = index;
-  e.reply(`已切换至系统预设 ${index + 1}`);
-}
+    
+    // 预设名称由顶部预设下的 PresetNames 统一提供
+    const presetName = PresetNames[index] || `预设${index + 1}`;
+    // 列表提示按 PresetNames 动态生成（每行两个，编号与 #ds选择预设 一致）
+    const presetLines = PresetNames
+      .map((name, i) => `${i + 1}.${name}`)
+      .reduce((rows, item, i) => {
+        if (i % 2 === 0) rows.push(item);
+        else rows[rows.length - 1] += `  ${item}`;
+        return rows;
+      }, [])
+      .join('\n');
+
+    e.reply(`已切换至系统预设 ${index + 1}: ${presetName}\n当前预设列表：\n${presetLines}\n切换预设之后建议使用 #ds清空对话 来消除上一个预设的记忆`);
+  }
  else {
     e.reply(`无效编号，当前可用预设1~${Presets.length}`);
   }
